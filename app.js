@@ -5700,6 +5700,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
                 videoCategoryId: categoriaId || "",
                 maxResults: 24
             });
+            if (gs.view !== "home") return; // outra tela foi aberta enquanto carregava
             gs.nextPageToken = data.nextPageToken || "";
             gs.contexto = { tipo: "populares", categoriaId };
             conteudo().innerHTML = `
@@ -6221,4 +6222,288 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         try { desfazerUltimaAcao(); } catch (e) { console.warn("Voltar:", e); }
         try { history.pushState({ streamhubGuard: true }, "", location.href); } catch (e) {}
     });
+})();
+
+// ==========================================
+// PÁGINAS DE NAVEGAÇÃO (categoria, subcategoria, mídia) + ROTAS NA URL
+// Cada tela ganha um endereço próprio (#/categoria/..., #/midia/...),
+// um cabeçalho de página e as mídias podem ser abertas em página dedicada
+// ou diretamente numa página do Mini YouTube.
+// ==========================================
+(function instalarPaginasDeNavegacao() {
+    let midiaPagina = null;       // mídia exibida na página de mídia
+    let rotaPendente = null;      // rota lida da URL antes dos dados chegarem
+    let aplicandoRota = false;
+
+    const enc = (t) => encodeURIComponent(t || "");
+    const dec = (t) => { try { return decodeURIComponent(t || ""); } catch (e) { return t || ""; } };
+    const esc = (t) => String(t == null ? "" : t).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const nodo = (cat) => { try { return btoa(unescape(encodeURIComponent(cat))).replace(/=/g, ""); } catch (e) { return ""; } };
+
+    function idYoutubeDaMidia(track) {
+        const link = (track && track.link) || "";
+        if (/videoseries|[?&]list=/.test(link) && !/embed\/[A-Za-z0-9_-]{11}/.test(link)) return null;
+        try { return extractYoutubeId(link) || null; } catch (e) { return null; }
+    }
+    function idPlaylistDaMidia(track) {
+        const link = (track && track.link) || "";
+        try { return extractPlaylistId(link) || null; } catch (e) { return null; }
+    }
+
+    function midiasDaSub(cat, sub) {
+        if (sub === "Vídeos Recentes" && currentPlaylist.length && currentPlaylist[0] && currentPlaylist[0].isDinâmico) return currentPlaylist.slice();
+        return ordenarFaixas(database.filter((i) => i.categoria === cat && i.subcategoria === sub));
+    }
+    function capaCat(cat) {
+        const m = database.find((i) => i.categoria === cat);
+        const n = nodo(cat);
+        return (m && m.capa) || (canaisDinamicos[n] && canaisDinamicos[n].thumb) || "";
+    }
+
+    // ---------- Mini YouTube ----------
+    function abrirNoMiniYoutube(track) {
+        const vid = idYoutubeDaMidia(track);
+        const pl = idPlaylistDaMidia(track);
+        if (!vid && !pl) { try { castAvisar("<b>Esta mídia não é do YouTube</b> — abrindo no player."); } catch (e) {} return false; }
+        try { pausarReproducaoLocal(); } catch (e) {}
+        const player = document.getElementById("btn-close-player");
+        if (player && player.offsetParent !== null) { try { player.click(); } catch (e) {} }
+        if (typeof window.abrirModoGuest !== "function") return false;
+        window.abrirModoGuest({ logado: true, restaurar: false });
+        setTimeout(() => {
+            if (vid && typeof window.abrirVideoGuest === "function") window.abrirVideoGuest(vid);
+            else if (pl && typeof window.abrirPlaylistGuest === "function") window.abrirPlaylistGuest(pl);
+        }, 0);
+        return true;
+    }
+    window.abrirMidiaNoMiniYoutube = abrirNoMiniYoutube;
+
+    // ---------- Abrir mídia em página ----------
+    function abrirMidiaEmPagina(track) {
+        if (!track) return;
+        midiaPagina = track;
+        if (track.categoria) selectedCategory = track.categoria;
+        if (track.subcategoria) selectedSubcategory = track.subcategoria;
+        currentView = "media_page";
+        renderMosaic();
+        try { document.querySelector(".mosaic-container")?.scrollTo({ top: 0 }); window.scrollTo({ top: 0 }); } catch (e) {}
+    }
+    window.abrirMidiaEmPagina = abrirMidiaEmPagina;
+
+    // ---------- Botões extras nos cartões de mídia ----------
+    const createCardOriginal = createCard;
+    createCard = function (title, imgSrc, showAddButton, isPlaylist, clickCallback, realIndex, shareInfo, favInfo) {
+        const card = createCardOriginal.apply(this, arguments);
+        const track = favInfo && favInfo.tipo === "midia" ? (favInfo.track || shareInfo) : null;
+        if (track) {
+            let linha = card.querySelector(".card-actions-row");
+            if (!linha) { linha = document.createElement("div"); linha.className = "card-actions-row"; card.appendChild(linha); }
+            const bPag = document.createElement("div");
+            bPag.className = "page-open-badge"; bPag.title = "Abrir em página"; bPag.setAttribute("aria-label", "Abrir em página");
+            bPag.innerHTML = '<i class="fas fa-up-right-from-square"></i>';
+            bPag.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); abrirMidiaEmPagina(track); });
+            linha.prepend(bPag);
+            if (idYoutubeDaMidia(track) || idPlaylistDaMidia(track)) {
+                const bYt = document.createElement("div");
+                bYt.className = "page-open-badge yt"; bYt.title = "Abrir no Mini YouTube"; bYt.setAttribute("aria-label", "Abrir no Mini YouTube");
+                bYt.innerHTML = '<i class="fab fa-youtube"></i>';
+                bYt.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); abrirNoMiniYoutube(track); });
+                bPag.after(bYt);
+            }
+        }
+        return card;
+    };
+    window.createCard = createCard;
+
+    // ---------- Cabeçalho das páginas ----------
+    function heroEl() {
+        let h = document.getElementById("page-hero");
+        if (!h) {
+            const grid = document.getElementById("mosaic-grid");
+            if (!grid) return null;
+            h = document.createElement("section");
+            h.id = "page-hero"; h.className = "page-hero hidden";
+            grid.parentNode.insertBefore(h, document.getElementById("sort-bar") || grid);
+        }
+        return h;
+    }
+
+    function desenharHero() {
+        const h = heroEl(); if (!h) return;
+        const sortBar = document.getElementById("sort-bar");
+        if (sortBar) sortBar.classList.toggle("hidden", currentView === "media_page");
+        if (currentView === "subcategories") {
+            const subs = new Set(database.filter((i) => i.categoria === selectedCategory).map((i) => i.subcategoria));
+            if (canaisDinamicos[nodo(selectedCategory)]) subs.add("Vídeos Recentes");
+            const total = database.filter((i) => i.categoria === selectedCategory).length;
+            h.innerHTML = `
+                <div class="page-hero-cover" style="background-image:url('${esc(capaCat(selectedCategory))}')"></div>
+                <div class="page-hero-info">
+                    <span class="page-hero-kind"><i class="fas fa-folder-open"></i> Categoria</span>
+                    <h2>${esc(selectedCategory)}</h2>
+                    <p>${subs.size} subcategoria(s) · ${total} mídia(s)</p>
+                    <div class="page-hero-actions"><button type="button" class="page-btn ghost" data-act="home"><i class="fas fa-arrow-left"></i> Início</button></div>
+                </div>`;
+            h.classList.remove("hidden");
+        } else if (currentView === "tracks") {
+            const lista = midiasDaSub(selectedCategory, selectedSubcategory);
+            const m = lista[0];
+            const capa = (m && m.capa) || capaCat(selectedCategory);
+            h.innerHTML = `
+                <div class="page-hero-cover" style="background-image:url('${esc(capa)}')"></div>
+                <div class="page-hero-info">
+                    <span class="page-hero-kind"><i class="fas fa-layer-group"></i> Subcategoria · <a href="#" data-act="cat">${esc(selectedCategory)}</a></span>
+                    <h2>${esc(selectedSubcategory)}</h2>
+                    <p>${selectedSubcategory === "Vídeos Recentes" ? "Vídeos mais recentes do canal" : lista.length + " mídia(s)"}</p>
+                    <div class="page-hero-actions">
+                        <button type="button" class="page-btn primary" data-act="playall"><i class="fas fa-play"></i> Reproduzir tudo</button>
+                        <button type="button" class="page-btn ghost" data-act="cat"><i class="fas fa-arrow-left"></i> ${esc(selectedCategory)}</button>
+                    </div>
+                </div>`;
+            h.classList.remove("hidden");
+        } else {
+            h.innerHTML = ""; h.classList.add("hidden");
+        }
+        h.querySelectorAll("[data-act]").forEach((el) => el.addEventListener("click", (e) => {
+            e.preventDefault();
+            const a = el.getAttribute("data-act");
+            if (a === "home") { currentView = "categories"; selectedCategory = ""; selectedSubcategory = ""; renderMosaic(); try { renderSidebar(); } catch (er) {} }
+            else if (a === "cat") { currentView = "subcategories"; selectedSubcategory = ""; renderMosaic(); }
+            else if (a === "playall") {
+                if (currentPlaylist.length) { currentTrackIndex = 0; playTrack(0); }
+            }
+        }));
+    }
+
+    // ---------- Página da mídia ----------
+    function desenharPaginaDaMidia() {
+        const grid = document.getElementById("mosaic-grid"); if (!grid || !midiaPagina) return;
+        const t = midiaPagina;
+        const bcCat = document.getElementById("bc-category"); const bcSub = document.getElementById("bc-subcategory");
+        if (bcCat && t.categoria) { bcCat.classList.remove("hidden"); bcCat.querySelector(".txt").innerText = t.categoria; }
+        if (bcSub && t.subcategoria) { bcSub.classList.remove("hidden"); bcSub.querySelector(".txt").innerText = t.subcategoria; }
+
+        const lista = t.categoria ? midiasDaSub(t.categoria, t.subcategoria) : [t];
+        let idx = lista.findIndex((i) => i.link === t.link && i.título === t.título);
+        if (idx < 0) { lista.unshift(t); idx = 0; }
+        const vid = idYoutubeDaMidia(t);
+        const ehYt = !!(vid || idPlaylistDaMidia(t));
+        let capa = t.capa || (vid ? thumbAltaPorId(vid) : "") || "https://placehold.co/640x360?text=Sem+Capa";
+        let dur = ""; try { dur = formatarDuracao(duracaoDaFaixa(t)); } catch (e) {}
+        const fav = (() => { try { return ehFavorito({ tipo: "midia", track: t }); } catch (e) { return false; } })();
+
+        grid.innerHTML = `
+        <article class="media-page">
+            <div class="media-page-stage" data-act="play" title="Reproduzir">
+                <img src="${esc(capa)}" alt="${esc(t.título)}"${vid ? atributoFallbackThumb(vid) : ""}>
+                <span class="media-page-play"><i class="fas fa-play"></i></span>
+                ${dur ? `<span class="duration-badge"><i class="fas fa-clock"></i> ${esc(dur)}</span>` : ""}
+            </div>
+            <div class="media-page-info">
+                <span class="page-hero-kind"><i class="fas fa-photo-film"></i> Mídia${t.categoria ? ` · <a href="#" data-act="cat">${esc(t.categoria)}</a> › <a href="#" data-act="sub">${esc(t.subcategoria)}</a>` : ""}</span>
+                <h2>${esc(t.título)}</h2>
+                <div class="page-hero-actions">
+                    <button type="button" class="page-btn primary" data-act="play"><i class="fas fa-play"></i> Reproduzir</button>
+                    ${ehYt ? `<button type="button" class="page-btn yt" data-act="mini"><i class="fab fa-youtube"></i> Abrir no Mini YouTube</button>` : ""}
+                    <button type="button" class="page-btn ghost" data-act="fav"><i class="${fav ? "fas" : "far"} fa-heart"></i> ${fav ? "Favoritado" : "Favoritar"}</button>
+                    <button type="button" class="page-btn ghost" data-act="share"><i class="fas fa-share-nodes"></i> Compartilhar</button>
+                    ${t.categoria ? `<button type="button" class="page-btn ghost" data-act="sub"><i class="fas fa-arrow-left"></i> Voltar</button>` : ""}
+                </div>
+            </div>
+            ${lista.length > 1 ? `<h3 class="local-result-group-title media-page-more">Mais em ${esc(t.subcategoria || "")}</h3>` : ""}
+        </article>`;
+
+        const art = grid.querySelector(".media-page");
+        art.querySelectorAll("[data-act]").forEach((el) => el.addEventListener("click", (e) => {
+            e.preventDefault(); e.stopPropagation();
+            const a = el.getAttribute("data-act");
+            if (a === "play") { currentPlaylist = lista; playTrack(idx); }
+            else if (a === "mini") abrirNoMiniYoutube(t);
+            else if (a === "fav") { try { alternarFavorito({ tipo: "midia", track: t }); } catch (er) {} desenharPaginaDaMidia(); }
+            else if (a === "share") compartilharMidia(t);
+            else if (a === "cat") { selectedCategory = t.categoria; selectedSubcategory = ""; currentView = "subcategories"; renderMosaic(); }
+            else if (a === "sub") { selectedCategory = t.categoria; selectedSubcategory = t.subcategoria; currentView = "tracks"; renderMosaic(); }
+        }));
+
+        lista.forEach((track, i) => {
+            if (i === idx) return;
+            const card = createCard(track.título, track.capa, false, false, () => abrirMidiaEmPagina(track), -1, track, { tipo: "midia", track });
+            grid.appendChild(card);
+        });
+    }
+
+    // ---------- Rotas (URL) ----------
+    function rotaAtual() {
+        if (currentView === "subcategories" && selectedCategory) return `#/categoria/${enc(selectedCategory)}`;
+        if (currentView === "tracks" && selectedCategory) return `#/categoria/${enc(selectedCategory)}/${enc(selectedSubcategory)}`;
+        if (currentView === "media_page" && midiaPagina) {
+            const t = midiaPagina;
+            return t.categoria ? `#/midia/${enc(t.categoria)}/${enc(t.subcategoria)}/${enc(t.link)}` : `#/midia/-/-/${enc(t.link)}`;
+        }
+        return "";
+    }
+    function gravarRota() {
+        if (aplicandoRota) return;
+        const destino = rotaAtual();
+        const atual = location.hash || "";
+        if (destino === atual || (!destino && !atual)) return;
+        try { history.replaceState(history.state, "", location.pathname + location.search + destino); } catch (e) {}
+    }
+    function lerRota(hash) {
+        const p = String(hash || "").replace(/^#\/?/, "").split("/");
+        if (p[0] === "categoria" && p[1]) return { tipo: p[2] != null ? "sub" : "cat", c: dec(p[1]), s: dec(p[2]) };
+        if (p[0] === "midia" && p[3]) return { tipo: "midia", c: dec(p[1]), s: dec(p[2]), l: dec(p.slice(3).join("/")) };
+        return null;
+    }
+    function aplicarRota(r) {
+        if (!r) return false;
+        aplicandoRota = true;
+        try {
+            if (r.tipo === "cat") { selectedCategory = r.c; selectedSubcategory = ""; currentView = "subcategories"; }
+            else if (r.tipo === "sub") { selectedCategory = r.c; selectedSubcategory = r.s; currentView = "tracks"; }
+            else if (r.tipo === "midia") {
+                const t = database.find((i) => i.link === r.l && (r.c === "-" || i.categoria === r.c)) || { título: "Mídia", link: r.l };
+                midiaPagina = t; selectedCategory = t.categoria || ""; selectedSubcategory = t.subcategoria || ""; currentView = "media_page";
+            }
+        } finally { aplicandoRota = false; }
+        renderMosaic();
+        try { renderSidebar(); } catch (e) {}
+        return true;
+    }
+
+    // ---------- Encaixe no renderMosaic ----------
+    const renderAnterior = renderMosaic;
+    renderMosaic = function () {
+        const r = renderAnterior.apply(this, arguments);
+        try {
+            if (currentView === "media_page") desenharPaginaDaMidia();
+            desenharHero();
+            gravarRota();
+        } catch (e) { console.warn("Páginas:", e); }
+        return r;
+    };
+    window.renderMosaic = renderMosaic;
+
+    // Restaura a rota da URL assim que o acervo carregar
+    rotaPendente = lerRota(location.hash);
+    const recarregarOriginal = recarregarDadosDoBanco;
+    recarregarDadosDoBanco = async function () {
+        const r = await recarregarOriginal.apply(this, arguments);
+        if (rotaPendente) { const alvo = rotaPendente; rotaPendente = null; aplicarRota(alvo); }
+        return r;
+    };
+    window.recarregarDadosDoBanco = recarregarDadosDoBanco;
+
+    // Links colados/editados manualmente na barra de endereço
+    window.addEventListener("hashchange", () => {
+        const r = lerRota(location.hash);
+        if (r && location.hash !== rotaAtual()) aplicarRota(r);
+    });
+
+    // Início sempre limpa a rota
+    document.addEventListener("click", (e) => {
+        if (e.target.closest && e.target.closest("#bc-home, #bc-root")) {
+            setTimeout(gravarRota, 0);
+        }
+    }, true);
 })();
