@@ -3443,3 +3443,54 @@ body.guest-mode-on .theme-switcher-float { display: none !important; }
     .media-page { grid-template-columns: 1fr; gap: 14px; }
     .media-page-play { width: 58px; height: 58px; font-size: 1.4rem; }
 }
+
+
+/* ==========================================
+   PLAYER DE STREAMS / AO VIVO
+   ========================================== */
+.player-content { position: relative; }
+.stream-badge {
+    position: absolute; top: 12px; left: 12px; z-index: 6;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px 6px 10px; border-radius: 999px;
+    background: linear-gradient(135deg, var(--theme-color), var(--theme-color-hover));
+    color: var(--text-white); font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.12) inset;
+    pointer-events: none; text-transform: uppercase;
+    animation: streamBadgeIn .35s ease-out;
+}
+.stream-badge.hidden, .stream-status.hidden { display: none !important; }
+.stream-dot {
+    width: 9px; height: 9px; border-radius: 50%; background: #fff;
+    box-shadow: 0 0 0 0 rgba(255,255,255,0.8); animation: streamPulse 1.4s infinite;
+}
+.stream-badge.is-vod { background: rgba(20,20,20,0.82); backdrop-filter: blur(6px); }
+.stream-badge.is-vod .stream-dot { animation: none; background: var(--theme-color); }
+.stream-format {
+    padding: 2px 7px; border-radius: 6px; background: rgba(0,0,0,0.28);
+    font-size: 0.64rem; font-weight: 700; letter-spacing: 0.05em;
+}
+.stream-format:empty { display: none; }
+.stream-status {
+    position: absolute; left: 50%; bottom: 64px; transform: translateX(-50%); z-index: 6;
+    display: inline-flex; align-items: center; gap: 8px; max-width: calc(100% - 32px);
+    padding: 9px 16px; border-radius: 12px;
+    background: rgba(15,15,15,0.85); backdrop-filter: blur(8px);
+    color: var(--text-white); font-size: 0.82rem; text-align: center;
+    border: 1px solid var(--border-color); box-shadow: 0 8px 22px rgba(0,0,0,0.5);
+}
+.stream-status.is-error { border-color: var(--theme-color); }
+.stream-status.is-error i { color: var(--theme-color); }
+.floating-player.stream-live .player-content #raw-player::-webkit-media-controls-timeline { display: none; }
+.floating-player.stream-live { box-shadow: 0 0 0 1px var(--theme-color), 0 12px 40px rgba(0,0,0,0.6); }
+.floating-player.stream-mode.audio-mode .stream-badge { top: 10px; left: 10px; }
+@keyframes streamPulse {
+    0% { box-shadow: 0 0 0 0 rgba(255,255,255,0.75); }
+    70% { box-shadow: 0 0 0 8px rgba(255,255,255,0); }
+    100% { box-shadow: 0 0 0 0 rgba(255,255,255,0); }
+}
+@keyframes streamBadgeIn { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+@media (max-width: 768px) {
+    .stream-badge { top: 8px; left: 8px; padding: 5px 10px 5px 8px; font-size: 0.66rem; }
+    .stream-status { bottom: 56px; font-size: 0.76rem; }
+}

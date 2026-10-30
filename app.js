@@ -621,6 +621,7 @@ function limparInterfaceLocal() {
     currentUserUid = ""; CONFIG.FIREBASE_URL = ""; CONFIG.YT_API_KEY = YT_API_KEY_GLOBAL;
     if (ytPlayer) { try { ytPlayer.stopVideo(); } catch(e){} }
     if (document.getElementById('universal-player')) document.getElementById('universal-player').src = "";
+    try { pararStreamAtual(); } catch (e) {}
     if (document.getElementById('raw-player')) { document.getElementById('raw-player').pause(); document.getElementById('raw-player').src = ""; }
     esconderPalcoDeAudio();
     if (document.getElementById('login-user')) document.getElementById('login-user').value = "";
@@ -1097,11 +1098,19 @@ function playTrack(index) {
     try { atualizarBotaoFavoritoDoPlayer(); } catch (e) {}
 
     const ytPlayerEl = document.getElementById('yt-player'); const univPlayerEl = document.getElementById('universal-player'); const rawPlayerEl = document.getElementById('raw-player');
-    if (univPlayerEl) univPlayerEl.src = ""; if (rawPlayerEl) rawPlayerEl.src = "";
+    try { pararStreamAtual(); } catch (e) {}
+    if (univPlayerEl) univPlayerEl.src = ""; if (rawPlayerEl) { rawPlayerEl.removeAttribute('src'); try { rawPlayerEl.load(); } catch (e) {} }
     if (univPlayerEl) univPlayerEl.classList.add('hidden'); if (rawPlayerEl) rawPlayerEl.classList.add('hidden'); if (ytPlayerEl) ytPlayerEl.classList.remove('hidden');
     if (rawPlayerEl) rawPlayerEl.pause(); const linkOriginal = track.link.trim(); const vId = extractYoutubeId(linkOriginal);
     esconderPalcoDeAudio();
 
+    const tipoStream = vId ? null : detectarStream(linkOriginal);
+    if (tipoStream) {
+        if (ytPlayerEl) ytPlayerEl.classList.add('hidden');
+        if (ytPlayer && ytPlayer.stopVideo) { try { ytPlayer.stopVideo(); } catch (e) {} }
+        tocarStream(track, linkOriginal, tipoStream, rawPlayerEl);
+        return;
+    }
     if(vId) {
         if (ytPlayerEl) ytPlayerEl.classList.remove('hidden');
         if (!ytPlayer) { 
@@ -1125,6 +1134,10 @@ function playTrack(index) {
     else if(linkOriginal.toLowerCase().endsWith('.mp4') || linkOriginal.toLowerCase().endsWith('.mkv') || linkOriginal.toLowerCase().includes('raw.githubusercontent') || linkOriginal.includes('docs.google.com/uc?export=download')) {
         if (rawPlayerEl) { rawPlayerEl.classList.remove('hidden'); rawPlayerEl.src = linkOriginal; rawPlayerEl.play(); aplicarVolume(); rawPlayerEl.onended = () => { avancarFaixa(); }; }
     } 
+    else if (linkPrecisaSondagem(linkOriginal)) {
+        if (ytPlayerEl) ytPlayerEl.classList.add('hidden');
+        sondarEReproduzir(track, linkOriginal, rawPlayerEl, univPlayerEl, index);
+    }
     else { 
         if (univPlayerEl) { 
             univPlayerEl.classList.remove('hidden'); 
@@ -6507,3 +6520,275 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         }
     }, true);
 })();
+
+
+/* ==========================================================================
+   STREAMS / TRANSMISSÕES AO VIVO
+   Detecta HLS (.m3u8), DASH (.mpd), FLV/MPEG-TS, rádios Icecast/Shoutcast,
+   playlists .m3u/.pls e links sem extensão (sondagem de Content-Type).
+   Mídias diretas sempre tocam no <video> interno — nunca em iframe —
+   para evitar que celulares forcem o download do arquivo.
+   ========================================================================== */
+const streamEstado = { hls: null, dash: null, mpegts: null, token: 0, tentativas: 0 };
+
+function _urlLimpa(url) { return (url || '').split('#')[0].split('?')[0].trim().toLowerCase(); }
+
+function detectarStream(url) {
+    if (!url) return null;
+    const u = url.trim().toLowerCase();
+    const limpa = _urlLimpa(url);
+    if (/\.m3u8$/.test(limpa) || /[?&](type|format)=(m3u8|hls)/.test(u) || /\/hls\//.test(limpa) || /\/playlist\.m3u8|manifest\(format=m3u8/.test(u)) return 'hls';
+    if (/\.mpd$/.test(limpa) || /manifest\(format=mpd/.test(u) || /[?&](type|format)=(mpd|dash)/.test(u)) return 'dash';
+    if (/\.isml?\/manifest$/.test(limpa)) return 'dash';
+    if (/\.flv$/.test(limpa)) return 'flv';
+    if (/\.ts$/.test(limpa) || /\.m2ts$/.test(limpa)) return 'mpegts';
+    if (/\.(m3u|pls|xspf)$/.test(limpa)) return 'playlist';
+    if (/^(rtmp|rtmps|rtsp|mms|mmsh):\/\//.test(u)) return 'protocolo';
+    // Rádios Icecast/Shoutcast e afins
+    if (/;stream|\/;$|\/stream(\/|$)|\/live(\/|$)|\/listen(\/|$)|\/radio(\/|$)|icecast|shoutcast|zeno\.fm|streamtheworld|radio\.co|\/autodj|:\d{4,5}\/?($|;|stream|live)/.test(u) && !/\.(mp4|mkv|webm|mp3|html?|php)$/.test(limpa)) return 'radio';
+    return null;
+}
+
+// Links sem extensão de mídia conhecida e que não são páginas de serviços conhecidos
+function linkPrecisaSondagem(url) {
+    const u = (url || '').toLowerCase();
+    if (!/^https?:\/\//.test(u)) return false;
+    if (/youtube|youtu\.be|drive\.google|docs\.google|archive\.org|vimeo|dailymotion|twitch|facebook|instagram|tiktok|spotify|soundcloud|deezer/.test(u)) return false;
+    const ext = extensaoDoArquivo(url);
+    if (/^(html?|php|aspx?|jsp)$/.test(ext)) return false;
+    return /^(mp4|m4v|webm|ogv|mov|3gp|mkv|avi|wmv)$/.test(ext) || ext === '' || ext.length > 5 || /download|media|video|file|stream|cdn|get/.test(u);
+}
+
+function pararStreamAtual() {
+    streamEstado.token++;
+    try { if (streamEstado.hls) streamEstado.hls.destroy(); } catch (e) {}
+    try { if (streamEstado.dash) streamEstado.dash.reset(); } catch (e) {}
+    try { if (streamEstado.mpegts) { streamEstado.mpegts.pause(); streamEstado.mpegts.unload(); streamEstado.mpegts.detachMediaElement(); streamEstado.mpegts.destroy(); } } catch (e) {}
+    streamEstado.hls = streamEstado.dash = streamEstado.mpegts = null;
+    mostrarSeloStream(false);
+    mostrarStatusStream(null);
+    const c = document.getElementById('player-container'); if (c) c.classList.remove('stream-mode', 'stream-live');
+}
+
+function mostrarSeloStream(ativo, formato, aoVivo) {
+    const selo = document.getElementById('stream-badge');
+    const c = document.getElementById('player-container');
+    if (!selo) return;
+    if (!ativo) { selo.classList.add('hidden'); return; }
+    selo.classList.remove('hidden');
+    selo.classList.toggle('is-vod', aoVivo === false);
+    document.getElementById('stream-badge-text').innerText = aoVivo === false ? 'STREAM' : 'AO VIVO';
+    document.getElementById('stream-badge-format').innerText = formato || '';
+    if (c) { c.classList.add('stream-mode'); c.classList.toggle('stream-live', aoVivo !== false); }
+}
+
+function mostrarStatusStream(texto, erro) {
+    const el = document.getElementById('stream-status');
+    if (!el) return;
+    if (!texto) { el.classList.add('hidden'); return; }
+    el.classList.remove('hidden');
+    el.classList.toggle('is-error', !!erro);
+    el.innerHTML = (erro ? '<i class="fas fa-triangle-exclamation"></i> ' : '<i class="fas fa-circle-notch fa-spin"></i> ') + '<span></span>';
+    el.querySelector('span').innerText = texto;
+}
+
+function _iniciarReproducao(video) {
+    try { aplicarVolume(); } catch (e) {}
+    const p = video.play();
+    if (p && p.catch) p.catch(() => {
+        // Autoplay bloqueado: tenta sem som e avisa
+        video.muted = true;
+        video.play().then(() => mostrarStatusStream('Toque no player para ativar o som', false)).catch(() => mostrarStatusStream('Toque em ▶ para iniciar a transmissão', false));
+        setTimeout(() => mostrarStatusStream(null), 4000);
+    });
+}
+
+function _prepararVideoStream(video, ehAudio, track) {
+    const c = document.getElementById('player-container');
+    video.classList.remove('hidden');
+    video.setAttribute('playsinline', ''); video.setAttribute('webkit-playsinline', '');
+    video.setAttribute('autoplay', ''); video.preload = 'auto';
+    video.crossOrigin = null; video.removeAttribute('crossorigin');
+    if (ehAudio) {
+        try { tocarPalcoStreamAudio(track); } catch (e) {}
+    } else { esconderPalcoDeAudio(); if (c) c.classList.remove('audio-mode'); }
+    video.onended = () => { if (!c || !c.classList.contains('stream-live')) avancarFaixa(); };
+    video.onplaying = () => { mostrarStatusStream(null); streamEstado.tentativas = 0; };
+    video.onwaiting = () => mostrarStatusStream('Carregando transmissão...');
+    video.onloadedmetadata = () => {
+        const aoVivo = !isFinite(video.duration) || video.duration === 0 || video.duration > 86400;
+        const selo = document.getElementById('stream-badge-format');
+        mostrarSeloStream(true, selo ? selo.innerText : '', aoVivo);
+    };
+}
+
+function tocarPalcoStreamAudio(track) {
+    const container = document.getElementById('player-container');
+    const palco = document.getElementById('audio-stage');
+    if (container) container.classList.add('audio-mode');
+    if (palco) palco.classList.remove('hidden');
+    const t = document.getElementById('audio-title'); if (t) t.innerText = (track && track.título) || 'Rádio ao vivo';
+    const a = document.getElementById('audio-artist'); if (a) a.innerText = 'Transmissão ao vivo';
+    const capa = capaPadraoDoAudio(track); definirCapaDoAudio(capa);
+    atualizarMetadadosDoSistema(track && track.título, 'Ao vivo', capa);
+}
+
+function _falhaStream(track, link, tipo, video, msg) {
+    if (streamEstado.tentativas < 2) {
+        streamEstado.tentativas++;
+        mostrarStatusStream('Reconectando à transmissão (' + streamEstado.tentativas + ')...');
+        const tk = streamEstado.token;
+        setTimeout(() => { if (tk === streamEstado.token) tocarStream(track, link, tipo, video, true); }, 1500);
+        return;
+    }
+    mostrarStatusStream(msg || 'Não foi possível reproduzir esta transmissão.', true);
+}
+
+async function tocarStream(track, link, tipo, video, ehRetentativa) {
+    if (!video) return;
+    if (!ehRetentativa) streamEstado.tentativas = 0;
+    // limpa instâncias anteriores sem zerar contador
+    const tent = streamEstado.tentativas; pararStreamAtual(); streamEstado.tentativas = tent;
+    const tk = streamEstado.token;
+    const nomes = { hls: 'HLS', dash: 'DASH', flv: 'FLV', mpegts: 'MPEG-TS', radio: 'RÁDIO', playlist: 'PLAYLIST', protocolo: 'RTMP/RTSP', progressivo: 'DIRETO' };
+    mostrarSeloStream(true, nomes[tipo] || 'STREAM', tipo === 'progressivo' ? false : true);
+    mostrarStatusStream('Conectando à transmissão...');
+    try { atualizarMetadadosDoSistema(track && track.título, 'Ao vivo', capaPadraoDoAudio(track)); } catch (e) {}
+
+    if (tipo === 'protocolo') {
+        video.classList.add('hidden');
+        mostrarStatusStream('Protocolo RTMP/RTSP não é suportado por navegadores. Use a versão HLS (.m3u8) do link.', true);
+        return;
+    }
+
+    if (tipo === 'playlist') {
+        const real = await resolverPlaylist(link);
+        if (tk !== streamEstado.token) return;
+        if (!real) { mostrarStatusStream('Não foi possível ler a playlist da rádio.', true); return; }
+        return tocarStream(track, real, detectarStream(real) || 'radio', video, true);
+    }
+
+    const ehAudio = tipo === 'radio';
+    _prepararVideoStream(video, ehAudio, track);
+    video.onerror = () => { if (tk === streamEstado.token) _falhaStream(track, link, tipo, video); };
+
+    if (tipo === 'hls') {
+        const nativo = video.canPlayType('application/vnd.apple.mpegurl') || video.canPlayType('application/x-mpegURL');
+        if (window.Hls && window.Hls.isSupported()) {
+            const hls = new window.Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 60, maxBufferLength: 30, manifestLoadingMaxRetry: 4, levelLoadingMaxRetry: 4, fragLoadingMaxRetry: 6 });
+            streamEstado.hls = hls;
+            hls.on(window.Hls.Events.MANIFEST_PARSED, () => _iniciarReproducao(video));
+            hls.on(window.Hls.Events.LEVEL_LOADED, (_, d) => { if (d && d.details) mostrarSeloStream(true, 'HLS', !!d.details.live); });
+            hls.on(window.Hls.Events.ERROR, (_, d) => {
+                if (!d || !d.fatal) return;
+                if (d.type === window.Hls.ErrorTypes.MEDIA_ERROR) { try { hls.recoverMediaError(); return; } catch (e) {} }
+                if (d.type === window.Hls.ErrorTypes.NETWORK_ERROR && nativo) { try { hls.destroy(); } catch (e) {} streamEstado.hls = null; video.src = link; _iniciarReproducao(video); return; }
+                _falhaStream(track, link, tipo, video, 'A transmissão está fora do ar ou bloqueia acesso externo.');
+            });
+            hls.loadSource(link); hls.attachMedia(video);
+        } else if (nativo) {
+            video.src = link; _iniciarReproducao(video);
+        } else { video.src = link; _iniciarReproducao(video); }
+        return;
+    }
+
+    if (tipo === 'dash') {
+        if (window.dashjs && window.dashjs.supportsMediaSource && window.dashjs.supportsMediaSource()) {
+            const p = window.dashjs.MediaPlayer().create();
+            streamEstado.dash = p;
+            p.updateSettings({ streaming: { lowLatencyEnabled: true, abr: { autoSwitchBitrate: { video: true } } } });
+            p.on(window.dashjs.MediaPlayer.events.ERROR, () => { if (tk === streamEstado.token) _falhaStream(track, link, tipo, video); });
+            p.on(window.dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => { try { mostrarSeloStream(true, 'DASH', p.isDynamic()); } catch (e) {} });
+            p.initialize(video, link, true);
+            _iniciarReproducao(video);
+        } else { video.src = link; _iniciarReproducao(video); }
+        return;
+    }
+
+    if (tipo === 'flv' || tipo === 'mpegts') {
+        if (window.mpegts && window.mpegts.isSupported()) {
+            const p = window.mpegts.createPlayer({ type: tipo === 'flv' ? 'flv' : 'mse', isLive: true, url: link }, { enableWorker: true, liveBufferLatencyChasing: true, lazyLoad: false });
+            streamEstado.mpegts = p;
+            p.on(window.mpegts.Events.ERROR, () => { if (tk === streamEstado.token) _falhaStream(track, link, tipo, video); });
+            p.attachMediaElement(video); p.load();
+            _iniciarReproducao(video);
+        } else { video.src = link; _iniciarReproducao(video); }
+        return;
+    }
+
+    // rádio / progressivo: elemento nativo
+    video.src = link;
+    try { video.load(); } catch (e) {}
+    _iniciarReproducao(video);
+}
+
+async function resolverPlaylist(link) {
+    try {
+        const r = await fetch(link, { mode: 'cors' });
+        const txt = await r.text();
+        if (/^#EXTM3U[\s\S]*#EXT-X-/m.test(txt)) return link + (link.includes('#') ? '' : '#.m3u8');
+        const linhas = txt.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+        for (const l of linhas) {
+            const m = l.match(/^File\d+=(.+)$/i); if (m) return m[1].trim();
+            const x = l.match(/<location>(.+?)<\/location>/i); if (x) return x[1].trim();
+            if (/^https?:\/\//i.test(l)) return l;
+        }
+    } catch (e) {}
+    return null;
+}
+
+// Descobre o tipo real de um link sem extensão (Content-Type) e decide o player
+async function sondarEReproduzir(track, link, video, iframe, index) {
+    const tk = ++streamEstado.token;
+    mostrarStatusStream('Analisando mídia...');
+    let tipoConteudo = '';
+    try {
+        const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 4000);
+        let r = await fetch(link, { method: 'HEAD', mode: 'cors', signal: ctrl.signal }).catch(() => null);
+        if (!r || !r.ok) r = await fetch(link, { method: 'GET', headers: { Range: 'bytes=0-1' }, mode: 'cors', signal: ctrl.signal }).catch(() => null);
+        clearTimeout(t);
+        if (r) { tipoConteudo = (r.headers.get('content-type') || '').toLowerCase(); try { r.body && r.body.cancel && r.body.cancel(); } catch (e) {} }
+    } catch (e) {}
+    if (tk !== streamEstado.token || currentTrackIndex !== index) return;
+    mostrarStatusStream(null);
+
+    if (/mpegurl/.test(tipoConteudo)) return tocarStream(track, link, 'hls', video);
+    if (/dash\+xml/.test(tipoConteudo)) return tocarStream(track, link, 'dash', video);
+    if (/x-flv/.test(tipoConteudo)) return tocarStream(track, link, 'flv', video);
+    if (/mp2t/.test(tipoConteudo)) return tocarStream(track, link, 'mpegts', video);
+    if (/scpls|x-scpls/.test(tipoConteudo)) return tocarStream(track, link, 'playlist', video);
+    if (/^audio\//.test(tipoConteudo)) {
+        // Áudio contínuo sem tamanho = rádio
+        return tocarStream(track, link, 'radio', video);
+    }
+    const ehVideoDireto = /^video\/|octet-stream|binary/.test(tipoConteudo) || /^(mp4|m4v|webm|ogv|mov|3gp|mkv)$/.test(extensaoDoArquivo(link));
+    if (ehVideoDireto) {
+        // Arquivo direto: reproduz no <video> (no iframe o celular baixaria o arquivo)
+        mostrarSeloStream(false);
+        esconderPalcoDeAudio();
+        video.classList.remove('hidden');
+        video.setAttribute('playsinline', ''); video.preload = 'auto';
+        video.onerror = () => { video.classList.add('hidden'); if (iframe) { iframe.classList.remove('hidden'); iframe.src = link; } };
+        video.onended = () => avancarFaixa();
+        video.src = link; _iniciarReproducao(video);
+        return;
+    }
+    if (/text\/html/.test(tipoConteudo) || !tipoConteudo) {
+        // Página ou CORS bloqueado: tenta <video> primeiro; se falhar, usa iframe (página de player)
+        if (!tipoConteudo) {
+            let decidiu = false;
+            video.classList.remove('hidden'); video.setAttribute('playsinline', '');
+            video.onloadedmetadata = () => { decidiu = true; const vivo = !isFinite(video.duration); if (vivo) mostrarSeloStream(true, 'STREAM', true); };
+            video.onplaying = () => { decidiu = true; mostrarStatusStream(null); };
+            video.onended = () => avancarFaixa();
+            const usarIframe = () => { if (decidiu || tk !== streamEstado.token) return; decidiu = true; video.pause(); video.removeAttribute('src'); try { video.load(); } catch (e) {} video.classList.add('hidden'); if (iframe) { iframe.classList.remove('hidden'); iframe.src = link; } };
+            video.onerror = usarIframe;
+            setTimeout(usarIframe, 6000);
+            video.src = link; _iniciarReproducao(video);
+            return;
+        }
+        if (iframe) { iframe.classList.remove('hidden'); iframe.src = link; }
+        return;
+    }
+    if (iframe) { iframe.classList.remove('hidden'); iframe.src = link; }
+}

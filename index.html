@@ -241,6 +241,12 @@
                         <span id="audio-warning" class="audio-warning hidden"></span>
                     </div>
                 </div>
+                <div id="stream-badge" class="stream-badge hidden" aria-live="polite">
+                    <span class="stream-dot"></span>
+                    <span id="stream-badge-text">AO VIVO</span>
+                    <span id="stream-badge-format" class="stream-format"></span>
+                </div>
+                <div id="stream-status" class="stream-status hidden"><i class="fas fa-circle-notch fa-spin"></i> <span>Conectando à transmissão...</span></div>
                 <video id="raw-player" class="hidden" controls autoplay playsinline webkit-playsinline preload="metadata"></video>
             </div>
 
@@ -666,6 +672,9 @@
     
     <script src="https://www.youtube.com/iframe_api"></script>
     <!-- app.js precisa registrar o callback __onGCastApiAvailable ANTES do SDK do Cast carregar -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.15/dist/hls.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dashjs@4.7.4/dist/dash.all.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mpegts.js@1.7.3/dist/mpegts.min.js"></script>
     <script src="app.js"></script>
     <script src="https://www.gstatic.com/cv/js/sender/v1/cast_sender.js?loadCastFramework=1"></script>
 </body>
