@@ -6529,7 +6529,46 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
    Mídias diretas sempre tocam no <video> interno — nunca em iframe —
    para evitar que celulares forcem o download do arquivo.
    ========================================================================== */
-const streamEstado = { hls: null, dash: null, mpegts: null, token: 0, tentativas: 0 };
+const streamEstado = { hls: null, dash: null, mpegts: null, token: 0, tentativas: 0, link: '', tipo: '', temVideo: null };
+
+/* Rótulo do selo de formato:
+   - Link com extensão de arquivo comum -> mostra a extensão (MP4, MP3, MKV...)
+   - Extensões próprias de stream (m3u, m3u8, mpd, ts...) -> "VideoTS" ou "AudioTS"
+   - Sem extensão -> "IPTV" (vídeo ao vivo) ou "RÁDIO" (áudio ao vivo) */
+const EXT_STREAM = /^(m3u|m3u8|mpd|ts|m2ts|mts|flv|pls|xspf|ism|isml|asx|ram|f4m|smil)$/;
+function _extensaoDoLink(url) {
+    const limpa = _urlLimpa(url).replace(/\/manifest(\(.*\))?$/, '');
+    const ultimo = limpa.split('/').pop() || '';
+    const m = ultimo.match(/\.([a-z0-9]{1,5})$/);
+    if (!m) return '';
+    if (/^(html?|php|aspx?|jsp|cgi)$/.test(m[1])) return '';
+    if (/^\d+$/.test(m[1])) return '';
+    return m[1];
+}
+function rotuloFormatoStream(link, tipo, temVideo) {
+    let ext = _extensaoDoLink(link);
+    if (!ext && /[?&](type|format)=(m3u8|hls)/i.test(link || '')) ext = 'm3u8';
+    if (!ext && /[?&](type|format)=(mpd|dash)/i.test(link || '')) ext = 'mpd';
+    if (temVideo === null || temVideo === undefined) {
+        // Palpite inicial até a mídia revelar se tem trilha de vídeo
+        temVideo = tipo === 'radio' ? false : (tipo === 'playlist' && /^(pls|xspf|m3u)$/.test(ext)) ? false : (tipo !== 'radio');
+    }
+    if (ext && EXT_STREAM.test(ext)) return temVideo ? 'VideoTS' : 'AudioTS';
+    if (ext) return ext.toUpperCase();
+    return temVideo ? 'IPTV' : 'RÁDIO';
+}
+function _definirTemVideo(valor) {
+    if (valor === null || valor === undefined || streamEstado.temVideo === valor) return;
+    streamEstado.temVideo = valor;
+    const fmt = document.getElementById('stream-badge-format');
+    if (fmt) fmt.innerText = rotuloFormatoStream(streamEstado.link, streamEstado.tipo, valor);
+    if (valor) { try { esconderPalcoDeAudio(); const c = document.getElementById('player-container'); if (c) c.classList.remove('audio-mode'); } catch (e) {} }
+}
+function _detectarVideoNoElemento(video) {
+    if (!video) return;
+    if (video.videoWidth > 0 || video.videoHeight > 0) return _definirTemVideo(true);
+    if (video.readyState >= 1) _definirTemVideo(false);
+}
 
 function _urlLimpa(url) { return (url || '').split('#')[0].split('?')[0].trim().toLowerCase(); }
 
@@ -6565,6 +6604,7 @@ function pararStreamAtual() {
     try { if (streamEstado.dash) streamEstado.dash.reset(); } catch (e) {}
     try { if (streamEstado.mpegts) { streamEstado.mpegts.pause(); streamEstado.mpegts.unload(); streamEstado.mpegts.detachMediaElement(); streamEstado.mpegts.destroy(); } } catch (e) {}
     streamEstado.hls = streamEstado.dash = streamEstado.mpegts = null;
+    streamEstado.link = ''; streamEstado.tipo = ''; streamEstado.temVideo = null;
     mostrarSeloStream(false);
     mostrarStatusStream(null);
     const c = document.getElementById('player-container'); if (c) c.classList.remove('stream-mode', 'stream-live');
@@ -6578,7 +6618,7 @@ function mostrarSeloStream(ativo, formato, aoVivo) {
     selo.classList.remove('hidden');
     selo.classList.toggle('is-vod', aoVivo === false);
     document.getElementById('stream-badge-text').innerText = aoVivo === false ? 'STREAM' : 'AO VIVO';
-    document.getElementById('stream-badge-format').innerText = formato || '';
+    document.getElementById('stream-badge-format').innerText = streamEstado.link ? rotuloFormatoStream(streamEstado.link, streamEstado.tipo, streamEstado.temVideo) : (formato || '');
     if (c) { c.classList.add('stream-mode'); c.classList.toggle('stream-live', aoVivo !== false); }
 }
 
@@ -6613,10 +6653,12 @@ function _prepararVideoStream(video, ehAudio, track) {
         try { tocarPalcoStreamAudio(track); } catch (e) {}
     } else { esconderPalcoDeAudio(); if (c) c.classList.remove('audio-mode'); }
     video.onended = () => { if (!c || !c.classList.contains('stream-live')) avancarFaixa(); };
-    video.onplaying = () => { mostrarStatusStream(null); streamEstado.tentativas = 0; };
+    video.onplaying = () => { mostrarStatusStream(null); streamEstado.tentativas = 0; _detectarVideoNoElemento(video); };
+    video.onresize = () => _detectarVideoNoElemento(video);
     video.onwaiting = () => mostrarStatusStream('Carregando transmissão...');
     video.onloadedmetadata = () => {
         const aoVivo = !isFinite(video.duration) || video.duration === 0 || video.duration > 86400;
+        _detectarVideoNoElemento(video);
         const selo = document.getElementById('stream-badge-format');
         mostrarSeloStream(true, selo ? selo.innerText : '', aoVivo);
     };
@@ -6648,7 +6690,10 @@ async function tocarStream(track, link, tipo, video, ehRetentativa) {
     if (!video) return;
     if (!ehRetentativa) streamEstado.tentativas = 0;
     // limpa instâncias anteriores sem zerar contador
+    const linkOrig = streamEstado.link, tipoOrig = streamEstado.tipo, videoOrig = streamEstado.temVideo;
     const tent = streamEstado.tentativas; pararStreamAtual(); streamEstado.tentativas = tent;
+    if (ehRetentativa && linkOrig) { streamEstado.link = linkOrig; streamEstado.tipo = tipoOrig; streamEstado.temVideo = videoOrig; }
+    else { streamEstado.link = link; streamEstado.tipo = tipo; streamEstado.temVideo = null; }
     const tk = streamEstado.token;
     const nomes = { hls: 'HLS', dash: 'DASH', flv: 'FLV', mpegts: 'MPEG-TS', radio: 'RÁDIO', playlist: 'PLAYLIST', protocolo: 'RTMP/RTSP', progressivo: 'DIRETO' };
     mostrarSeloStream(true, nomes[tipo] || 'STREAM', tipo === 'progressivo' ? false : true);
@@ -6677,7 +6722,14 @@ async function tocarStream(track, link, tipo, video, ehRetentativa) {
         if (window.Hls && window.Hls.isSupported()) {
             const hls = new window.Hls({ enableWorker: true, lowLatencyMode: true, backBufferLength: 60, maxBufferLength: 30, manifestLoadingMaxRetry: 4, levelLoadingMaxRetry: 4, fragLoadingMaxRetry: 6 });
             streamEstado.hls = hls;
-            hls.on(window.Hls.Events.MANIFEST_PARSED, () => _iniciarReproducao(video));
+            hls.on(window.Hls.Events.MANIFEST_PARSED, (_, d) => {
+                try {
+                    const lv = (d && d.levels) || [];
+                    if (lv.length) _definirTemVideo(lv.some(l => (l.width || l.height) || (l.videoCodec) || (l.attrs && l.attrs.RESOLUTION)) || (d.video === true));
+                    if (lv.length && lv.every(l => !l.width && !l.videoCodec && l.audioCodec)) _definirTemVideo(false);
+                } catch (e) {}
+                _iniciarReproducao(video);
+            });
             hls.on(window.Hls.Events.LEVEL_LOADED, (_, d) => { if (d && d.details) mostrarSeloStream(true, 'HLS', !!d.details.live); });
             hls.on(window.Hls.Events.ERROR, (_, d) => {
                 if (!d || !d.fatal) return;
@@ -6698,7 +6750,7 @@ async function tocarStream(track, link, tipo, video, ehRetentativa) {
             streamEstado.dash = p;
             p.updateSettings({ streaming: { lowLatencyEnabled: true, abr: { autoSwitchBitrate: { video: true } } } });
             p.on(window.dashjs.MediaPlayer.events.ERROR, () => { if (tk === streamEstado.token) _falhaStream(track, link, tipo, video); });
-            p.on(window.dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => { try { mostrarSeloStream(true, 'DASH', p.isDynamic()); } catch (e) {} });
+            p.on(window.dashjs.MediaPlayer.events.STREAM_INITIALIZED, () => { try { _definirTemVideo((p.getTracksFor('video') || []).length > 0); mostrarSeloStream(true, 'DASH', p.isDynamic()); } catch (e) {} });
             p.initialize(video, link, true);
             _iniciarReproducao(video);
         } else { video.src = link; _iniciarReproducao(video); }
@@ -6778,7 +6830,7 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         if (!tipoConteudo) {
             let decidiu = false;
             video.classList.remove('hidden'); video.setAttribute('playsinline', '');
-            video.onloadedmetadata = () => { decidiu = true; const vivo = !isFinite(video.duration); if (vivo) mostrarSeloStream(true, 'STREAM', true); };
+            video.onloadedmetadata = () => { decidiu = true; const vivo = !isFinite(video.duration); if (vivo) { streamEstado.link = link; streamEstado.tipo = ''; streamEstado.temVideo = (video.videoWidth > 0 || video.videoHeight > 0); mostrarSeloStream(true, '', true); } };
             video.onplaying = () => { decidiu = true; mostrarStatusStream(null); };
             video.onended = () => avancarFaixa();
             const usarIframe = () => { if (decidiu || tk !== streamEstado.token) return; decidiu = true; video.pause(); video.removeAttribute('src'); try { video.load(); } catch (e) {} video.classList.add('hidden'); if (iframe) { iframe.classList.remove('hidden'); iframe.src = link; } };
