@@ -7572,10 +7572,11 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
     function ouvir(r, ev, fn) { r.on(ev, fn); C.ouvintes.push(() => r.off(ev, fn)); }
 
     async function iniciar(user) {
+        // O botão fica sempre visível; sem login, o clique pede para entrar.
+        document.querySelectorAll(".btn-comunidade-trigger").forEach((b) => b.classList.remove("hidden"));
         if (!firebase.database) { console.warn("Comunidade: SDK do Realtime Database não carregado."); return; }
         C.ouvintes.forEach((f) => f()); C.ouvintes = [];
         C.uid = user ? user.uid : null;
-        document.querySelectorAll(".btn-comunidade-trigger").forEach((b) => b.classList.toggle("hidden", !user));
         if (!user) { fechar(); return; }
         C.db = firebase.database();
         // Publica um perfil público mínimo (nome + foto) para a comunidade
@@ -7601,7 +7602,14 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         document.querySelectorAll(".comunidade-badge").forEach((b) => { b.textContent = n; b.classList.toggle("hidden", !n); });
     }
 
-    function abrir() { if (!C.uid) return; $("comunidade-screen").classList.remove("hidden"); document.body.classList.add("comunidade-aberta"); $("dropdown-menu-mobile")?.classList.add("hidden"); trocarAba(C.aba); }
+    function abrir() {
+        $("dropdown-menu-mobile")?.classList.add("hidden");
+        if (!C.uid) {
+            const u = firebase.auth().currentUser;
+            if (u) { iniciar(u).then(() => C.uid && abrir()); return; }
+            alert("Entre na sua conta para acessar a Comunidade.");
+            return;
+        } $("comunidade-screen").classList.remove("hidden"); document.body.classList.add("comunidade-aberta"); $("dropdown-menu-mobile")?.classList.add("hidden"); trocarAba(C.aba); }
     function fechar() { $("comunidade-screen")?.classList.add("hidden"); document.body.classList.remove("comunidade-aberta"); fecharChat(); }
 
     function trocarAba(aba) {
@@ -7755,9 +7763,9 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
     }
 
     /* ---------- EVENTOS ---------- */
+    let ligado = false; // declarado antes de ligar() para evitar erro de inicialização
     document.addEventListener("DOMContentLoaded", ligar);
     if (document.readyState !== "loading") ligar();
-    let ligado = false;
     function ligar() {
         if (ligado || !$("comunidade-screen")) return; ligado = true;
         document.querySelectorAll(".btn-comunidade-trigger").forEach((b) => b.addEventListener("click", abrir));
