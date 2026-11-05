@@ -4534,15 +4534,19 @@ document.addEventListener("click", (e) => {
 
 
 // ==========================================
-// FAVORITOS: MIDIAS, CATEGORIAS E SUBCATEGORIAS
+// FAVORITOS: MENU COMPLETO (MIDIAS, CATEGORIAS, SUBCATEGORIAS, PASTAS E NOTAS)
 // ==========================================
-let favoritos = { midias: [], categorias: [], subcategorias: [] };
+let favoritos = { midias: [], categorias: [], subcategorias: [], pastas: [] };
+let favUI = { aba: 'midias', busca: '', ordem: 'recentes', pasta: '__todas', filtroNota: 0, selecionados: new Set() };
 
 function carregarFavoritosDoPerfil(dados) {
+    const agora = Date.now();
+    const arr = (v) => Array.isArray(v) ? v : [];
     favoritos = {
-        midias: Array.isArray(dados && dados.midias) ? dados.midias : [],
-        categorias: Array.isArray(dados && dados.categorias) ? dados.categorias : [],
-        subcategorias: Array.isArray(dados && dados.subcategorias) ? dados.subcategorias : []
+        midias: arr(dados && dados.midias).map((m, i) => Object.assign({ nota: 0, pasta: '', adicionadoEm: agora - i }, m)),
+        categorias: arr(dados && dados.categorias).map((c, i) => Object.assign({ nota: 0, adicionadoEm: agora - i }, c)),
+        subcategorias: arr(dados && dados.subcategorias).map((c, i) => Object.assign({ nota: 0, adicionadoEm: agora - i }, c)),
+        pastas: arr(dados && dados.pastas)
     };
     atualizarBotaoFavoritoDoPlayer();
 }
@@ -4570,21 +4574,22 @@ function ehFavorito(info) {
 function alternarFavorito(info) {
     if (!info) return;
     const jaEra = ehFavorito(info);
+    const agora = Date.now();
     if (info.tipo === 'categoria') {
         favoritos.categorias = jaEra
             ? favoritos.categorias.filter(c => c.categoria !== info.categoria)
-            : favoritos.categorias.concat([{ categoria: info.categoria, capa: capaDaCategoria(info.categoria) }]);
+            : favoritos.categorias.concat([{ categoria: info.categoria, capa: capaDaCategoria(info.categoria), nota: 0, adicionadoEm: agora }]);
     } else if (info.tipo === 'subcategoria') {
         favoritos.subcategorias = jaEra
             ? favoritos.subcategorias.filter(c => !(c.categoria === info.categoria && c.subcategoria === info.subcategoria))
-            : favoritos.subcategorias.concat([{ categoria: info.categoria, subcategoria: info.subcategoria, capa: capaDaSubcategoria(info.categoria, info.subcategoria) }]);
+            : favoritos.subcategorias.concat([{ categoria: info.categoria, subcategoria: info.subcategoria, capa: capaDaSubcategoria(info.categoria, info.subcategoria), nota: 0, adicionadoEm: agora }]);
     } else {
         const t = info.track || {};
         const link = (t.link || '').trim();
         if (!link) return;
         favoritos.midias = jaEra
             ? favoritos.midias.filter(m => (m.link || '').trim() !== link)
-            : favoritos.midias.concat([{ título: t.título || t.titulo || 'Mídia', link: link, capa: t.capa || '', categoria: t.categoria || '', subcategoria: t.subcategoria || '' }]);
+            : favoritos.midias.concat([{ título: t.título || t.titulo || 'Mídia', link: link, capa: t.capa || '', categoria: t.categoria || '', subcategoria: t.subcategoria || '', nota: 0, pasta: '', adicionadoEm: agora }]);
     }
     salvarFavoritos();
     atualizarBotaoFavoritoDoPlayer();
@@ -4607,6 +4612,7 @@ function capaDaSubcategoria(cat, sub) {
 }
 
 function abrirModalFavoritos() {
+    favUI.selecionados = new Set();
     renderizarFavoritos();
     document.getElementById('favorites-modal')?.classList.remove('hidden');
 }
@@ -4615,52 +4621,375 @@ function fecharModalFavoritos() {
     document.getElementById('favorites-modal')?.classList.add('hidden');
 }
 
+// ---------- Utilidades do menu ----------
+function favEsc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+function favIdPasta() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
+function favNomePasta(id) { const p = favoritos.pastas.find(x => x.id === id); return p ? p.nome : ''; }
+
+function favCriarPasta(nomeSugerido) {
+    const nome = (prompt('Nome da nova pasta:', nomeSugerido || '') || '').trim();
+    if (!nome) return null;
+    if (favoritos.pastas.some(p => p.nome.toLowerCase() === nome.toLowerCase())) { alert('Já existe uma pasta com esse nome.'); return null; }
+    const cores = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c'];
+    const pasta = { id: favIdPasta(), nome, cor: cores[favoritos.pastas.length % cores.length], criadaEm: Date.now() };
+    favoritos.pastas.push(pasta);
+    salvarFavoritos();
+    return pasta;
+}
+function favRenomearPasta(id) {
+    const p = favoritos.pastas.find(x => x.id === id); if (!p) return;
+    const nome = (prompt('Novo nome da pasta:', p.nome) || '').trim();
+    if (!nome) return;
+    p.nome = nome; salvarFavoritos(); renderizarFavoritos();
+}
+function favExcluirPasta(id) {
+    const p = favoritos.pastas.find(x => x.id === id); if (!p) return;
+    if (!confirm(`Excluir a pasta "${p.nome}"? As mídias continuam nos favoritos, apenas saem da pasta.`)) return;
+    favoritos.pastas = favoritos.pastas.filter(x => x.id !== id);
+    favoritos.midias.forEach(m => { if (m.pasta === id) m.pasta = ''; });
+    if (favUI.pasta === id) favUI.pasta = '__todas';
+    salvarFavoritos(); renderizarFavoritos();
+}
+function favMoverParaPasta(midias, pastaId) {
+    if (pastaId === '__nova') { const p = favCriarPasta(); if (!p) { renderizarFavoritos(); return; } pastaId = p.id; }
+    midias.forEach(m => { m.pasta = pastaId || ''; });
+    salvarFavoritos(); renderizarFavoritos();
+}
+function favDefinirNota(item, nota) {
+    item.nota = item.nota === nota ? 0 : nota;
+    salvarFavoritos(); renderizarFavoritos();
+}
+function favTocarLista(lista, aleatorio) {
+    if (!lista.length) return;
+    let fila = lista.slice();
+    if (aleatorio) for (let i = fila.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [fila[i], fila[j]] = [fila[j], fila[i]]; }
+    currentPlaylist = fila;
+    fecharModalFavoritos();
+    playTrack(0);
+}
+function favOrdenar(lista, titulo) {
+    const l = lista.slice();
+    const tit = (x) => (titulo(x) || '').toLowerCase();
+    switch (favUI.ordem) {
+        case 'antigos': l.sort((a, b) => (a.adicionadoEm || 0) - (b.adicionadoEm || 0)); break;
+        case 'az': l.sort((a, b) => tit(a).localeCompare(tit(b), 'pt-BR')); break;
+        case 'za': l.sort((a, b) => tit(b).localeCompare(tit(a), 'pt-BR')); break;
+        case 'nota': l.sort((a, b) => (b.nota || 0) - (a.nota || 0) || (b.adicionadoEm || 0) - (a.adicionadoEm || 0)); break;
+        default: l.sort((a, b) => (b.adicionadoEm || 0) - (a.adicionadoEm || 0));
+    }
+    return l;
+}
+function favFiltrar(lista, campos) {
+    const q = favUI.busca.trim().toLowerCase();
+    return lista.filter(x => (!q || campos(x).join(' ').toLowerCase().includes(q)) && (x.nota || 0) >= favUI.filtroNota);
+}
+function favExportar() {
+    const blob = new Blob([JSON.stringify(favoritos, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'streamhub-favoritos.json'; a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+function favImportar() {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'application/json,.json';
+    inp.onchange = () => {
+        const f = inp.files && inp.files[0]; if (!f) return;
+        const r = new FileReader();
+        r.onload = () => {
+            try {
+                const d = JSON.parse(r.result);
+                const links = new Set(favoritos.midias.map(m => (m.link || '').trim()));
+                (d.pastas || []).forEach(p => { if (p && p.id && !favoritos.pastas.some(x => x.id === p.id)) favoritos.pastas.push(p); });
+                (d.midias || []).forEach(m => { if (m && m.link && !links.has(m.link.trim())) favoritos.midias.push(m); });
+                (d.categorias || []).forEach(c => { if (c && !favoritos.categorias.some(x => x.categoria === c.categoria)) favoritos.categorias.push(c); });
+                (d.subcategorias || []).forEach(c => { if (c && !favoritos.subcategorias.some(x => x.categoria === c.categoria && x.subcategoria === c.subcategoria)) favoritos.subcategorias.push(c); });
+                salvarFavoritos(); renderizarFavoritos(); try { renderMosaic(); } catch (e) {}
+                alert('Favoritos importados com sucesso!');
+            } catch (e) { alert('Arquivo inválido.'); }
+        };
+        r.readAsText(f);
+    };
+    inp.click();
+}
+function favLimparTudo() {
+    if (!confirm('Remover TODOS os favoritos e pastas? Essa ação não pode ser desfeita.')) return;
+    favoritos = { midias: [], categorias: [], subcategorias: [], pastas: [] };
+    salvarFavoritos(); atualizarBotaoFavoritoDoPlayer(); try { renderMosaic(); } catch (e) {} renderizarFavoritos();
+}
+
+function favEstrelas(nota) {
+    let h = '<div class="fav-estrelas" title="Sua nota">';
+    for (let i = 1; i <= 5; i++) h += `<button type="button" class="fav-estrela${i <= (nota || 0) ? ' on' : ''}" data-nota="${i}" aria-label="Nota ${i}"><i class="${i <= (nota || 0) ? 'fas' : 'far'} fa-star"></i></button>`;
+    return h + '</div>';
+}
+function favOpcoesPasta(atual) {
+    return `<option value="">Sem pasta</option>` +
+        favoritos.pastas.map(p => `<option value="${favEsc(p.id)}"${p.id === atual ? ' selected' : ''}>${favEsc(p.nome)}</option>`).join('') +
+        `<option value="__nova">+ Nova pasta...</option>`;
+}
+
+// ---------- Render principal ----------
 function renderizarFavoritos() {
     const corpo = document.getElementById('favorites-body');
     if (!corpo) return;
-    corpo.innerHTML = '';
+    const nMid = favoritos.midias.length, nCat = favoritos.categorias.length, nSub = favoritos.subcategorias.length, nPas = favoritos.pastas.length;
 
-    const total = favoritos.categorias.length + favoritos.subcategorias.length + favoritos.midias.length;
+    const abas = [
+        ['midias', 'fa-play-circle', 'Mídias', nMid],
+        ['pastas', 'fa-folder', 'Pastas', nPas],
+        ['categorias', 'fa-th-large', 'Categorias', nCat],
+        ['subcategorias', 'fa-layer-group', 'Subcategorias', nSub]
+    ];
+
+    corpo.innerHTML = `
+        <div class="fav-menu-abas">${abas.map(a => `<button type="button" class="fav-aba${favUI.aba === a[0] ? ' ativa' : ''}" data-aba="${a[0]}"><i class="fas ${a[1]}"></i> ${a[2]} <span>${a[3]}</span></button>`).join('')}</div>
+        <div class="fav-toolbar">
+            <div class="fav-busca"><i class="fas fa-search"></i><input type="text" id="fav-busca-input" placeholder="Buscar nos favoritos..." value="${favEsc(favUI.busca)}"></div>
+            <select id="fav-ordem" title="Ordenar">
+                <option value="recentes">Mais recentes</option><option value="antigos">Mais antigos</option>
+                <option value="az">A → Z</option><option value="za">Z → A</option><option value="nota">Maior nota</option>
+            </select>
+            <select id="fav-filtro-nota" title="Filtrar por nota">
+                <option value="0">Todas as notas</option><option value="1">★ 1+</option><option value="2">★ 2+</option>
+                <option value="3">★ 3+</option><option value="4">★ 4+</option><option value="5">★ 5</option>
+            </select>
+            <div class="fav-mais-wrap">
+                <button type="button" class="fav-btn" id="fav-btn-mais" title="Mais opções"><i class="fas fa-ellipsis-v"></i></button>
+                <div class="fav-mais-menu hidden" id="fav-mais-menu">
+                    <button type="button" data-mais="nova-pasta"><i class="fas fa-folder-plus"></i> Nova pasta</button>
+                    <button type="button" data-mais="exportar"><i class="fas fa-file-export"></i> Exportar favoritos</button>
+                    <button type="button" data-mais="importar"><i class="fas fa-file-import"></i> Importar favoritos</button>
+                    <button type="button" data-mais="limpar" class="perigo"><i class="fas fa-trash"></i> Limpar tudo</button>
+                </div>
+            </div>
+        </div>
+        <div id="fav-conteudo"></div>`;
+
+    corpo.querySelector('#fav-ordem').value = favUI.ordem;
+    corpo.querySelector('#fav-filtro-nota').value = String(favUI.filtroNota);
+
+    corpo.querySelectorAll('.fav-aba').forEach(b => b.addEventListener('click', () => { favUI.aba = b.dataset.aba; favUI.selecionados = new Set(); renderizarFavoritos(); }));
+    const busca = corpo.querySelector('#fav-busca-input');
+    busca.addEventListener('input', () => { favUI.busca = busca.value; renderizarConteudoFavoritos(); });
+    corpo.querySelector('#fav-ordem').addEventListener('change', (e) => { favUI.ordem = e.target.value; renderizarConteudoFavoritos(); });
+    corpo.querySelector('#fav-filtro-nota').addEventListener('change', (e) => { favUI.filtroNota = parseInt(e.target.value, 10) || 0; renderizarConteudoFavoritos(); });
+    const menuMais = corpo.querySelector('#fav-mais-menu');
+    corpo.querySelector('#fav-btn-mais').addEventListener('click', (e) => { e.stopPropagation(); menuMais.classList.toggle('hidden'); });
+    menuMais.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-mais]'); if (!b) return;
+        menuMais.classList.add('hidden');
+        const a = b.dataset.mais;
+        if (a === 'nova-pasta') { if (favCriarPasta()) { favUI.aba = 'pastas'; renderizarFavoritos(); } }
+        else if (a === 'exportar') favExportar();
+        else if (a === 'importar') favImportar();
+        else if (a === 'limpar') favLimparTudo();
+    });
+
+    renderizarConteudoFavoritos();
+}
+
+function renderizarConteudoFavoritos() {
+    const alvo = document.getElementById('fav-conteudo');
+    if (!alvo) return;
+    alvo.innerHTML = '';
+    const total = favoritos.categorias.length + favoritos.subcategorias.length + favoritos.midias.length + favoritos.pastas.length;
     if (total === 0) {
-        corpo.innerHTML = '<p class="fav-vazio">Você ainda não favoritou nada. Toque no coração dos cards de mídias, categorias ou subcategorias para salvar aqui.</p>';
+        alvo.innerHTML = '<p class="fav-vazio">Você ainda não favoritou nada. Toque no coração dos cards de mídias, categorias ou subcategorias para salvar aqui. Depois, organize em pastas e dê notas de 1 a 5 estrelas.</p>';
         return;
     }
+    if (favUI.aba === 'pastas') return renderFavPastas(alvo);
+    if (favUI.aba === 'categorias') return renderFavGrupos(alvo, 'categoria');
+    if (favUI.aba === 'subcategorias') return renderFavGrupos(alvo, 'subcategoria');
+    return renderFavMidias(alvo);
+}
 
-    const criarSecao = (titulo, itens, montar) => {
-        if (!itens.length) return;
-        const h = document.createElement('h4');
-        h.className = 'fav-secao-titulo';
-        h.innerText = `${titulo} (${itens.length})`;
-        corpo.appendChild(h);
-        const lista = document.createElement('div');
-        lista.className = 'fav-lista';
-        itens.forEach(item => lista.appendChild(montar(item)));
-        corpo.appendChild(lista);
-    };
+function renderFavMidias(alvo) {
+    // Filtro de pasta
+    const chips = [['__todas', 'Todas', favoritos.midias.length], ['', 'Sem pasta', favoritos.midias.filter(m => !m.pasta).length]]
+        .concat(favoritos.pastas.map(p => [p.id, p.nome, favoritos.midias.filter(m => m.pasta === p.id).length, p.cor]));
+    const barraPastas = document.createElement('div');
+    barraPastas.className = 'fav-chips';
+    barraPastas.innerHTML = chips.map(c => `<button type="button" class="fav-chip${favUI.pasta === c[0] ? ' ativo' : ''}" data-pasta="${favEsc(c[0])}">${c[3] ? `<i class="fas fa-folder" style="color:${favEsc(c[3])}"></i> ` : ''}${favEsc(c[1])} <span>${c[2]}</span></button>`).join('')
+        + `<button type="button" class="fav-chip fav-chip-nova" data-pasta="__nova"><i class="fas fa-plus"></i> Pasta</button>`;
+    barraPastas.addEventListener('click', (e) => {
+        const b = e.target.closest('.fav-chip'); if (!b) return;
+        if (b.dataset.pasta === '__nova') { const p = favCriarPasta(); if (p) favUI.pasta = p.id; renderizarFavoritos(); return; }
+        favUI.pasta = b.dataset.pasta; favUI.selecionados = new Set(); renderizarConteudoFavoritos();
+    });
+    alvo.appendChild(barraPastas);
 
-    const linha = (capa, titulo, subtitulo, aoAbrir, aoRemover) => {
+    let lista = favoritos.midias.filter(m => favUI.pasta === '__todas' ? true : (m.pasta || '') === favUI.pasta);
+    lista = favOrdenar(favFiltrar(lista, m => [m.título, m.categoria, m.subcategoria, favNomePasta(m.pasta)]), m => m.título);
+
+    // Ações em massa
+    const acoes = document.createElement('div');
+    acoes.className = 'fav-acoes';
+    const nSel = favUI.selecionados.size;
+    acoes.innerHTML = `
+        <button type="button" class="fav-btn primario" data-acao="tocar"${lista.length ? '' : ' disabled'}><i class="fas fa-play"></i> Tocar tudo</button>
+        <button type="button" class="fav-btn" data-acao="aleatorio"${lista.length ? '' : ' disabled'}><i class="fas fa-random"></i> Aleatório</button>
+        <label class="fav-sel-todos"><input type="checkbox" data-acao="sel-todos"${lista.length && lista.every(m => favUI.selecionados.has(m.link)) ? ' checked' : ''}> Selecionar</label>
+        ${nSel ? `<span class="fav-sel-info">${nSel} selecionada(s)</span>
+            <select class="fav-select" data-acao="mover-massa"><option value="__x">Mover para...</option>${favOpcoesPasta('__x')}</select>
+            <button type="button" class="fav-btn" data-acao="tocar-sel"><i class="fas fa-play"></i></button>
+            <button type="button" class="fav-btn perigo" data-acao="remover-sel"><i class="fas fa-heart-crack"></i></button>` : ''}`;
+    alvo.appendChild(acoes);
+    const selecionadas = () => favoritos.midias.filter(m => favUI.selecionados.has(m.link));
+    acoes.addEventListener('click', (e) => {
+        const b = e.target.closest('button[data-acao]'); if (!b) return;
+        const a = b.dataset.acao;
+        if (a === 'tocar') favTocarLista(lista, false);
+        else if (a === 'aleatorio') favTocarLista(lista, true);
+        else if (a === 'tocar-sel') favTocarLista(lista.filter(m => favUI.selecionados.has(m.link)), false);
+        else if (a === 'remover-sel') {
+            if (!confirm(`Remover ${favUI.selecionados.size} mídia(s) dos favoritos?`)) return;
+            favoritos.midias = favoritos.midias.filter(m => !favUI.selecionados.has(m.link));
+            favUI.selecionados = new Set();
+            salvarFavoritos(); atualizarBotaoFavoritoDoPlayer(); try { renderMosaic(); } catch (er) {} renderizarFavoritos();
+        }
+    });
+    acoes.addEventListener('change', (e) => {
+        const a = e.target.dataset.acao;
+        if (a === 'sel-todos') { favUI.selecionados = e.target.checked ? new Set(lista.map(m => m.link)) : new Set(); renderizarConteudoFavoritos(); }
+        else if (a === 'mover-massa' && e.target.value !== '__x') { const s = selecionadas(); favUI.selecionados = new Set(); favMoverParaPasta(s, e.target.value); }
+    });
+
+    if (!lista.length) {
+        const p = document.createElement('p'); p.className = 'fav-vazio';
+        p.innerText = 'Nenhuma mídia encontrada com esses filtros.';
+        alvo.appendChild(p); return;
+    }
+
+    const ul = document.createElement('div');
+    ul.className = 'fav-lista';
+    lista.forEach(m => {
+        const div = document.createElement('div');
+        div.className = 'fav-item fav-item-midia' + (favUI.selecionados.has(m.link) ? ' selecionado' : '');
+        const pastaNome = favNomePasta(m.pasta);
+        div.innerHTML = `
+            <input type="checkbox" class="fav-check"${favUI.selecionados.has(m.link) ? ' checked' : ''} aria-label="Selecionar">
+            <img src="${favEsc(m.capa || 'https://placehold.co/160x90?text=Sem+Capa')}" alt="">
+            <div class="fav-item-info">
+                <strong>${favEsc(m.título)}</strong>
+                <span>${favEsc([m.categoria, m.subcategoria].filter(Boolean).join(' • '))}${pastaNome ? ` <em class="fav-tag-pasta"><i class="fas fa-folder"></i> ${favEsc(pastaNome)}</em>` : ''}</span>
+                ${favEstrelas(m.nota)}
+            </div>
+            <div class="fav-item-acoes">
+                <select class="fav-select fav-mover" title="Mover para pasta">${favOpcoesPasta(m.pasta)}</select>
+                <button type="button" class="fav-icone" data-a="play" title="Tocar"><i class="fas fa-play"></i></button>
+                <button type="button" class="fav-icone" data-a="copiar" title="Copiar link"><i class="fas fa-link"></i></button>
+                <button type="button" class="fav-icone perigo" data-a="remover" title="Remover dos favoritos"><i class="fas fa-heart-crack"></i></button>
+            </div>`;
+        div.addEventListener('click', (e) => {
+            if (e.target.closest('.fav-check, select')) return;
+            const est = e.target.closest('.fav-estrela'); if (est) { e.stopPropagation(); favDefinirNota(m, parseInt(est.dataset.nota, 10)); return; }
+            const b = e.target.closest('[data-a]');
+            const a = b ? b.dataset.a : 'play';
+            if (a === 'play') { currentPlaylist = lista.slice(); fecharModalFavoritos(); playTrack(lista.indexOf(m)); }
+            else if (a === 'copiar') { try { navigator.clipboard.writeText(m.link); b.innerHTML = '<i class="fas fa-check"></i>'; } catch (er) {} }
+            else if (a === 'remover') alternarFavorito({ tipo: 'midia', track: m });
+        });
+        div.querySelector('.fav-check').addEventListener('change', (e) => {
+            if (e.target.checked) favUI.selecionados.add(m.link); else favUI.selecionados.delete(m.link);
+            renderizarConteudoFavoritos();
+        });
+        div.querySelector('.fav-mover').addEventListener('change', (e) => favMoverParaPasta([m], e.target.value));
+        ul.appendChild(div);
+    });
+    alvo.appendChild(ul);
+}
+
+function renderFavPastas(alvo) {
+    const topo = document.createElement('div');
+    topo.className = 'fav-acoes';
+    topo.innerHTML = `<button type="button" class="fav-btn primario"><i class="fas fa-folder-plus"></i> Nova pasta</button>`;
+    topo.querySelector('button').addEventListener('click', () => { if (favCriarPasta()) renderizarFavoritos(); });
+    alvo.appendChild(topo);
+
+    const q = favUI.busca.trim().toLowerCase();
+    let pastas = favoritos.pastas.filter(p => !q || p.nome.toLowerCase().includes(q));
+    pastas = favOrdenar(pastas.map(p => Object.assign({}, p, { adicionadoEm: p.criadaEm })), p => p.nome).map(p => favoritos.pastas.find(x => x.id === p.id));
+
+    if (!pastas.length) {
+        const p = document.createElement('p'); p.className = 'fav-vazio';
+        p.innerText = 'Nenhuma pasta ainda. Crie pastas para organizar suas mídias favoritas do seu jeito.';
+        alvo.appendChild(p); return;
+    }
+    const grade = document.createElement('div');
+    grade.className = 'fav-grade-pastas';
+    pastas.forEach(p => {
+        const itens = favoritos.midias.filter(m => m.pasta === p.id);
+        const capas = itens.slice(0, 4).map(m => `<img src="${favEsc(m.capa || 'https://placehold.co/160x90?text=+')}" alt="">`).join('');
+        const card = document.createElement('div');
+        card.className = 'fav-pasta-card';
+        card.style.setProperty('--pasta-cor', p.cor || 'var(--theme-color)');
+        card.innerHTML = `
+            <div class="fav-pasta-capa">${capas || '<i class="fas fa-folder-open"></i>'}</div>
+            <div class="fav-pasta-info"><strong><i class="fas fa-folder"></i> ${favEsc(p.nome)}</strong><span>${itens.length} mídia(s)</span></div>
+            <div class="fav-pasta-acoes">
+                <button type="button" class="fav-icone" data-a="abrir" title="Abrir"><i class="fas fa-folder-open"></i></button>
+                <button type="button" class="fav-icone" data-a="tocar" title="Tocar pasta"${itens.length ? '' : ' disabled'}><i class="fas fa-play"></i></button>
+                <button type="button" class="fav-icone" data-a="aleatorio" title="Tocar aleatório"${itens.length ? '' : ' disabled'}><i class="fas fa-random"></i></button>
+                <label class="fav-icone fav-cor" title="Cor da pasta"><i class="fas fa-palette"></i><input type="color" value="${favEsc(/^#[0-9a-f]{6}$/i.test(p.cor || '') ? p.cor : '#ff0000')}"></label>
+                <button type="button" class="fav-icone" data-a="renomear" title="Renomear"><i class="fas fa-pen"></i></button>
+                <button type="button" class="fav-icone perigo" data-a="excluir" title="Excluir pasta"><i class="fas fa-trash"></i></button>
+            </div>`;
+        card.addEventListener('click', (e) => {
+            if (e.target.closest('.fav-cor')) return;
+            const b = e.target.closest('[data-a]');
+            const a = b ? b.dataset.a : 'abrir';
+            if (a === 'abrir') { favUI.aba = 'midias'; favUI.pasta = p.id; renderizarFavoritos(); }
+            else if (a === 'tocar') favTocarLista(favOrdenar(itens, m => m.título), false);
+            else if (a === 'aleatorio') favTocarLista(itens, true);
+            else if (a === 'renomear') favRenomearPasta(p.id);
+            else if (a === 'excluir') favExcluirPasta(p.id);
+        });
+        card.querySelector('.fav-cor input').addEventListener('change', (e) => { p.cor = e.target.value; salvarFavoritos(); renderizarConteudoFavoritos(); });
+        grade.appendChild(card);
+    });
+    alvo.appendChild(grade);
+}
+
+function renderFavGrupos(alvo, tipo) {
+    const ehCat = tipo === 'categoria';
+    const fonte = ehCat ? favoritos.categorias : favoritos.subcategorias;
+    const titulo = (c) => ehCat ? c.categoria : c.subcategoria;
+    const lista = favOrdenar(favFiltrar(fonte, c => [c.categoria, c.subcategoria]), titulo);
+    if (!lista.length) {
+        const p = document.createElement('p'); p.className = 'fav-vazio';
+        p.innerText = ehCat ? 'Nenhuma categoria favoritada encontrada.' : 'Nenhuma subcategoria favoritada encontrada.';
+        alvo.appendChild(p); return;
+    }
+    const ul = document.createElement('div');
+    ul.className = 'fav-lista';
+    lista.forEach(c => {
         const div = document.createElement('div');
         div.className = 'fav-item';
-        div.innerHTML = `<img src="${capa || 'https://placehold.co/160x90?text=Sem+Capa'}">
-            <div class="fav-item-info"><strong>${titulo}</strong><span>${subtitulo || ''}</span></div>
-            <button type="button" class="fav-item-remove" title="Remover dos favoritos"><i class="fas fa-heart-crack"></i></button>`;
-        div.addEventListener('click', (e) => { if (e.target.closest('.fav-item-remove')) return; aoAbrir(); });
-        div.querySelector('.fav-item-remove').addEventListener('click', (e) => { e.stopPropagation(); aoRemover(); });
-        return div;
-    };
-
-    criarSecao('Categorias', favoritos.categorias, (c) => linha(c.capa, c.categoria, 'Categoria',
-        () => { selectedCategory = c.categoria; selectedSubcategory = ''; currentView = 'subcategories'; fecharModalFavoritos(); renderMosaic(); },
-        () => alternarFavorito({ tipo: 'categoria', categoria: c.categoria })));
-
-    criarSecao('Subcategorias', favoritos.subcategorias, (c) => linha(c.capa, c.subcategoria, c.categoria,
-        () => { selectedCategory = c.categoria; selectedSubcategory = c.subcategoria; currentView = 'tracks'; fecharModalFavoritos(); renderMosaic(); },
-        () => alternarFavorito({ tipo: 'subcategoria', categoria: c.categoria, subcategoria: c.subcategoria })));
-
-    criarSecao('Mídias', favoritos.midias, (m) => linha(m.capa, m.título, [m.categoria, m.subcategoria].filter(Boolean).join(' • '),
-        () => { currentPlaylist = favoritos.midias.slice(); fecharModalFavoritos(); playTrack(favoritos.midias.indexOf(m)); },
-        () => alternarFavorito({ tipo: 'midia', track: m })));
+        div.innerHTML = `<img src="${favEsc(c.capa || 'https://placehold.co/160x90?text=Sem+Capa')}" alt="">
+            <div class="fav-item-info"><strong>${favEsc(titulo(c))}</strong><span>${favEsc(ehCat ? 'Categoria' : c.categoria)}</span>${favEstrelas(c.nota)}</div>
+            <div class="fav-item-acoes">
+                <button type="button" class="fav-icone" data-a="abrir" title="Abrir"><i class="fas fa-arrow-right"></i></button>
+                <button type="button" class="fav-icone perigo" data-a="remover" title="Remover dos favoritos"><i class="fas fa-heart-crack"></i></button>
+            </div>`;
+        div.addEventListener('click', (e) => {
+            const est = e.target.closest('.fav-estrela'); if (est) { favDefinirNota(c, parseInt(est.dataset.nota, 10)); return; }
+            const b = e.target.closest('[data-a]');
+            if (b && b.dataset.a === 'remover') { alternarFavorito(ehCat ? { tipo: 'categoria', categoria: c.categoria } : { tipo: 'subcategoria', categoria: c.categoria, subcategoria: c.subcategoria }); return; }
+            selectedCategory = c.categoria;
+            selectedSubcategory = ehCat ? '' : c.subcategoria;
+            currentView = ehCat ? 'subcategories' : 'tracks';
+            fecharModalFavoritos(); renderMosaic();
+        });
+        ul.appendChild(div);
+    });
+    alvo.appendChild(ul);
 }
+
+document.addEventListener('click', (e) => {
+    const menu = document.getElementById('fav-mais-menu');
+    if (menu && !menu.classList.contains('hidden') && !e.target.closest('.fav-mais-wrap')) menu.classList.add('hidden');
+});
 
 function faixaAtualDoPlayer() {
     return currentPlaylist && currentPlaylist[currentTrackIndex] ? currentPlaylist[currentTrackIndex] : null;
