@@ -20,6 +20,7 @@
 
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
 </head>
 <body>
@@ -146,6 +147,7 @@
             <div class="header-right">
                 <button id="btn-toggle-search-mobile" class="btn-icon btn-mobile-only" title="Pesquisar"><i class="fas fa-search"></i></button>
                 
+                <button id="btn-comunidade" class="btn-icon btn-desktop-only btn-comunidade-trigger hidden" title="Comunidade" aria-label="Abrir a Comunidade"><i class="fas fa-users"></i><span class="comunidade-badge hidden">0</span></button>
                 <button id="btn-mini-youtube" class="btn-icon btn-desktop-only btn-mini-youtube" title="Mini YouTube" aria-label="Abrir o Mini YouTube"><i class="fab fa-youtube"></i></button>
                 <button id="btn-favorites" class="btn-icon btn-desktop-only btn-favorites-header" title="Meus Favoritos" aria-label="Meus Favoritos"><i class="fas fa-heart"></i></button>
                 <button id="btn-open-admin" class="btn-admin btn-desktop-only" title="Administração"><i class="fas fa-cog"></i> Admin</button>
@@ -156,6 +158,7 @@
                     <button id="btn-trigger-dropdown-mobile" class="btn-icon" title="Opções" style="font-size: 1.3rem; color: var(--theme-color);"><i class="fas fa-cog"></i></button>
                     
                     <div id="dropdown-menu-mobile" class="dropdown-content-menu hidden">
+                        <button id="btn-comunidade-mobile" class="dropdown-item-btn btn-comunidade-trigger hidden"><i class="fas fa-users"></i> Comunidade<span class="comunidade-badge hidden">0</span></button>
                         <button id="btn-mini-youtube-mobile" class="dropdown-item-btn item-youtube"><i class="fab fa-youtube"></i> Mini YouTube</button>
                         <button id="btn-favorites-mobile" class="dropdown-item-btn"><i class="fas fa-heart"></i> Favoritos</button>
                         <button id="btn-open-admin-mobile" class="dropdown-item-btn"><i class="fas fa-tools"></i> Painel Admin</button>
@@ -670,6 +673,53 @@
                 <button id="btn-master-delete-user" class="btn-default" style="border-radius:4px; background:#c0392b; color:#fff;">Apagar dados</button>
                 <button id="btn-master-save-user" class="btn-success" style="border-radius:4px;">Salvar Usuário</button>
             </div>
+        </div>
+    </div>
+
+    <!-- ================= COMUNIDADE ================= -->
+    <div id="comunidade-screen" class="hidden" role="dialog" aria-label="Comunidade">
+        <div class="com-topo">
+            <h2><i class="fas fa-users"></i>Comunidade</h2>
+            <button id="com-fechar" class="btn-icon" title="Fechar"><i class="fas fa-times"></i></button>
+        </div>
+        <nav class="com-tabs">
+            <button class="com-tab active" data-aba="feed"><i class="fas fa-stream"></i> Feed</button>
+            <button class="com-tab" data-aba="pessoas"><i class="fas fa-search"></i> Pessoas</button>
+            <button class="com-tab" data-aba="amigos"><i class="fas fa-user-friends"></i> Amigos <span class="comunidade-badge hidden" style="position:static;display:inline-flex">0</span></button>
+        </nav>
+        <div class="com-conteudo">
+            <section id="com-painel-feed" class="com-painel">
+                <form id="com-form-post" class="com-card">
+                    <textarea id="com-post-texto" maxlength="2000" placeholder="Compartilhe uma ideia, uma mídia, uma dica..."></textarea>
+                    <input id="com-post-link" class="hidden" type="url" placeholder="Cole um link (YouTube, vídeo MP4, imagem, site...)">
+                    <div id="com-preview"></div>
+                    <div class="com-form-barra">
+                        <label><i class="fas fa-image"></i> Foto<input id="com-arquivo" type="file" accept="image/*" hidden></label>
+                        <button type="button" id="com-btn-link" class="com-icone"><i class="fas fa-link"></i> Link/Vídeo</button>
+                        <button type="submit" id="com-btn-publicar" class="btn-primary">Publicar</button>
+                    </div>
+                </form>
+                <div id="com-feed-lista"></div>
+            </section>
+            <section id="com-painel-pessoas" class="com-painel hidden">
+                <input id="com-busca-pessoas" class="com-busca" placeholder="Buscar pessoas pelo nome...">
+                <div id="com-pessoas-lista"></div>
+            </section>
+            <section id="com-painel-amigos" class="com-painel hidden">
+                <h3 class="com-subtitulo">Pedidos de amizade</h3>
+                <div id="com-pedidos-lista"></div>
+                <h3 class="com-subtitulo">Meus amigos <small>(chat ao vivo liberado)</small></h3>
+                <div id="com-amigos-lista"></div>
+            </section>
+        </div>
+        <div id="com-chat" class="com-chat hidden">
+            <div class="com-chat-topo">
+                <img id="com-chat-avatar" class="com-avatar" src="" alt="">
+                <strong><span id="com-chat-nome"></span><small>Chat ao vivo</small></strong>
+                <button id="com-chat-fechar" class="btn-icon" title="Fechar chat"><i class="fas fa-times"></i></button>
+            </div>
+            <div id="com-chat-msgs"></div>
+            <form id="com-chat-form"><input id="com-chat-input" maxlength="1000" placeholder="Digite uma mensagem..." autocomplete="off"><button type="submit" class="btn-icon"><i class="fas fa-paper-plane"></i></button></form>
         </div>
     </div>
 

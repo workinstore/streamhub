@@ -7553,3 +7553,245 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
     }
     if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", ligar); else ligar();
 })();
+
+// ==========================================
+// COMUNIDADE: MINI REDE SOCIAL (feed, amizades e chat ao vivo)
+// Usa o Realtime Database em tempo real (firebase-database-compat).
+// Estrutura: comunidade/perfis, posts, pedidos, amigos, chats
+// ==========================================
+(function moduloComunidade() {
+    const C = { uid: null, db: null, perfil: {}, perfis: {}, amigos: {}, pedidos: {}, enviados: {}, aba: "feed", chatCom: null, ouvintes: [], ouvinteChat: null, midia: null };
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    const avatar = (p) => (p && p.foto) || "https://placehold.co/80x80/222222/ffffff?text=%F0%9F%91%A4";
+    const nomeDe = (uid) => (C.perfis[uid] && C.perfis[uid].nome) || "Usuário";
+    const tempo = (t) => { const d = (Date.now() - t) / 1000; if (d < 60) return "agora"; if (d < 3600) return Math.floor(d / 60) + " min"; if (d < 86400) return Math.floor(d / 3600) + " h"; return new Date(t).toLocaleDateString("pt-BR"); };
+    const ref = (p) => C.db.ref("comunidade/" + p);
+    const idChat = (a, b) => [a, b].sort().join("_");
+
+    function ouvir(r, ev, fn) { r.on(ev, fn); C.ouvintes.push(() => r.off(ev, fn)); }
+
+    async function iniciar(user) {
+        if (!firebase.database) { console.warn("Comunidade: SDK do Realtime Database não carregado."); return; }
+        C.ouvintes.forEach((f) => f()); C.ouvintes = [];
+        C.uid = user ? user.uid : null;
+        document.querySelectorAll(".btn-comunidade-trigger").forEach((b) => b.classList.toggle("hidden", !user));
+        if (!user) { fechar(); return; }
+        C.db = firebase.database();
+        // Publica um perfil público mínimo (nome + foto) para a comunidade
+        try {
+            const snap = await C.db.ref("usuarios/" + C.uid).once("value");
+            const p = snap.val() || {};
+            C.perfil = { nome: ((p.nome || user.displayName || (user.email || "").split("@")[0] || "Usuário") + (p.sobrenome ? " " + p.sobrenome : "")).trim(), foto: p.foto || user.photoURL || "", cidade: p.cidade || "", atualizado: Date.now() };
+        } catch (e) { C.perfil = { nome: user.displayName || (user.email || "Usuário").split("@")[0], foto: user.photoURL || "", atualizado: Date.now() }; }
+        ref("perfis/" + C.uid).update(C.perfil).catch((e) => console.warn("Comunidade perfil:", e));
+        const online = ref("online/" + C.uid);
+        online.set(true).catch(() => {}); online.onDisconnect().remove();
+
+        ouvir(ref("perfis"), "value", (s) => { C.perfis = s.val() || {}; renderizar(); });
+        ouvir(ref("amigos/" + C.uid), "value", (s) => { C.amigos = s.val() || {}; renderizar(); });
+        ouvir(ref("pedidos/" + C.uid), "value", (s) => { C.pedidos = s.val() || {}; atualizarBadge(); renderizar(); });
+        ouvir(ref("enviados/" + C.uid), "value", (s) => { C.enviados = s.val() || {}; renderizar(); });
+        ouvir(ref("online"), "value", (s) => { C.online = s.val() || {}; renderizar(); });
+        ouvir(ref("posts").orderByChild("criado").limitToLast(60), "value", (s) => { C.posts = s.val() || {}; renderizar(); });
+    }
+
+    function atualizarBadge() {
+        const n = Object.keys(C.pedidos || {}).length;
+        document.querySelectorAll(".comunidade-badge").forEach((b) => { b.textContent = n; b.classList.toggle("hidden", !n); });
+    }
+
+    function abrir() { if (!C.uid) return; $("comunidade-screen").classList.remove("hidden"); document.body.classList.add("comunidade-aberta"); $("dropdown-menu-mobile")?.classList.add("hidden"); trocarAba(C.aba); }
+    function fechar() { $("comunidade-screen")?.classList.add("hidden"); document.body.classList.remove("comunidade-aberta"); fecharChat(); }
+
+    function trocarAba(aba) {
+        C.aba = aba;
+        document.querySelectorAll(".com-tab").forEach((t) => t.classList.toggle("active", t.dataset.aba === aba));
+        document.querySelectorAll(".com-painel").forEach((p) => p.classList.toggle("hidden", p.id !== "com-painel-" + aba));
+        renderizar();
+    }
+
+    function renderizar() {
+        if (!C.uid || $("comunidade-screen")?.classList.contains("hidden")) return;
+        if (C.aba === "feed") renderFeed();
+        if (C.aba === "pessoas") renderPessoas();
+        if (C.aba === "amigos") renderAmigos();
+    }
+
+    /* ---------- FEED ---------- */
+    function embedMidia(m) {
+        if (!m) return "";
+        if (m.tipo === "imagem") return `<img class="com-post-img" src="${esc(m.url)}" alt="Imagem do post" loading="lazy">`;
+        const yt = (m.url || "").match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/);
+        if (yt) return `<div class="com-post-video"><iframe src="https://www.youtube.com/embed/${yt[1]}" allowfullscreen loading="lazy"></iframe></div>`;
+        if (/\.(mp4|webm|ogg)(\?|$)/i.test(m.url)) return `<video class="com-post-img" src="${esc(m.url)}" controls></video>`;
+        if (/\.(jpe?g|png|gif|webp)(\?|$)/i.test(m.url)) return `<img class="com-post-img" src="${esc(m.url)}" alt="" loading="lazy">`;
+        return `<a class="com-post-link" href="${esc(m.url)}" target="_blank" rel="noopener"><i class="fas fa-link"></i> ${esc(m.url)}</a>`;
+    }
+
+    function renderFeed() {
+        const lista = Object.entries(C.posts || {}).sort((a, b) => b[1].criado - a[1].criado);
+        const el = $("com-feed-lista");
+        if (!lista.length) { el.innerHTML = `<p class="com-vazio">Nenhuma publicação ainda. Seja o primeiro a compartilhar algo!</p>`; return; }
+        el.innerHTML = lista.map(([id, p]) => {
+            const autor = C.perfis[p.uid] || {};
+            const curtidas = p.curtidas ? Object.keys(p.curtidas).length : 0;
+            const curti = p.curtidas && p.curtidas[C.uid];
+            const coments = Object.entries(p.comentarios || {}).sort((a, b) => a[1].criado - b[1].criado);
+            return `<article class="com-post">
+                <header class="com-post-head">
+                    <img class="com-avatar" src="${esc(avatar(autor))}" alt="">
+                    <div><strong>${esc(autor.nome || "Usuário")}</strong><small>${tempo(p.criado)}</small></div>
+                    ${p.uid === C.uid ? `<button class="btn-icon com-del" data-del="${id}" title="Apagar"><i class="fas fa-trash"></i></button>` : ""}
+                </header>
+                ${p.texto ? `<p class="com-post-texto">${esc(p.texto)}</p>` : ""}
+                ${embedMidia(p.midia)}
+                <div class="com-post-acoes">
+                    <button class="com-acao ${curti ? "ativo" : ""}" data-curtir="${id}"><i class="${curti ? "fas" : "far"} fa-heart"></i> ${curtidas || ""}</button>
+                    <span class="com-acao"><i class="far fa-comment"></i> ${coments.length || ""}</span>
+                </div>
+                <div class="com-comentarios">
+                    ${coments.map(([, c]) => `<div class="com-comentario"><strong>${esc(nomeDe(c.uid))}</strong> ${esc(c.texto)}</div>`).join("")}
+                    <form class="com-form-comentario" data-post="${id}"><input maxlength="500" placeholder="Escreva um comentário..."><button type="submit" class="btn-icon"><i class="fas fa-paper-plane"></i></button></form>
+                </div>
+            </article>`;
+        }).join("");
+    }
+
+    function comprimirImagem(arquivo) {
+        return new Promise((ok, erro) => {
+            const leitor = new FileReader();
+            leitor.onerror = erro;
+            leitor.onload = () => {
+                const img = new Image();
+                img.onerror = erro;
+                img.onload = () => {
+                    const max = 1080, f = Math.min(1, max / Math.max(img.width, img.height));
+                    const cv = document.createElement("canvas"); cv.width = img.width * f; cv.height = img.height * f;
+                    cv.getContext("2d").drawImage(img, 0, 0, cv.width, cv.height);
+                    ok(cv.toDataURL("image/jpeg", 0.72));
+                };
+                img.src = leitor.result;
+            };
+            leitor.readAsDataURL(arquivo);
+        });
+    }
+
+    async function publicar(e) {
+        e.preventDefault();
+        const texto = $("com-post-texto").value.trim();
+        const link = $("com-post-link").value.trim();
+        let midia = C.midia || (link ? { tipo: "link", url: link } : null);
+        if (!texto && !midia) return;
+        const btn = $("com-btn-publicar"); btn.disabled = true;
+        try {
+            await ref("posts").push({ uid: C.uid, texto: texto.slice(0, 2000), midia: midia || null, criado: firebase.database.ServerValue.TIMESTAMP });
+            $("com-form-post").reset(); C.midia = null; $("com-preview").innerHTML = ""; $("com-post-link").classList.add("hidden");
+        } catch (err) { alert("Não foi possível publicar. Verifique as regras da Comunidade no Firebase."); console.error(err); }
+        btn.disabled = false;
+    }
+
+    /* ---------- PESSOAS E AMIZADES ---------- */
+    function cartaoPessoa(uid, botoes) {
+        const p = C.perfis[uid] || {};
+        return `<div class="com-pessoa"><span class="com-avatar-wrap"><img class="com-avatar" src="${esc(avatar(p))}" alt="">${C.online && C.online[uid] ? '<i class="com-online"></i>' : ""}</span>
+            <div class="com-pessoa-info"><strong>${esc(p.nome || "Usuário")}</strong>${p.cidade ? `<small>${esc(p.cidade)}</small>` : ""}</div>
+            <div class="com-pessoa-btns">${botoes}</div></div>`;
+    }
+
+    function renderPessoas() {
+        const termo = ($("com-busca-pessoas").value || "").toLowerCase();
+        const uids = Object.keys(C.perfis).filter((u) => u !== C.uid && (C.perfis[u].nome || "").toLowerCase().includes(termo));
+        $("com-pessoas-lista").innerHTML = uids.length ? uids.map((u) => {
+            let b;
+            if (C.amigos[u]) b = `<button class="btn-success com-btn" data-chat="${u}"><i class="fas fa-comments"></i> Conversar</button>`;
+            else if (C.pedidos[u]) b = `<button class="btn-success com-btn" data-aceitar="${u}">Aceitar</button><button class="btn-default com-btn" data-recusar="${u}">Recusar</button>`;
+            else if (C.enviados[u]) b = `<button class="btn-default com-btn" data-cancelar="${u}">Pedido enviado ✕</button>`;
+            else b = `<button class="btn-primary com-btn" data-adicionar="${u}"><i class="fas fa-user-plus"></i> Adicionar</button>`;
+            return cartaoPessoa(u, b);
+        }).join("") : `<p class="com-vazio">Nenhuma pessoa encontrada.</p>`;
+    }
+
+    function renderAmigos() {
+        const ped = Object.keys(C.pedidos || {});
+        $("com-pedidos-lista").innerHTML = ped.length ? ped.map((u) => cartaoPessoa(u, `<button class="btn-success com-btn" data-aceitar="${u}">Aceitar</button><button class="btn-default com-btn" data-recusar="${u}">Recusar</button>`)).join("") : `<p class="com-vazio">Nenhum pedido pendente.</p>`;
+        const am = Object.keys(C.amigos || {});
+        $("com-amigos-lista").innerHTML = am.length ? am.map((u) => cartaoPessoa(u, `<button class="btn-success com-btn" data-chat="${u}"><i class="fas fa-comments"></i> Chat</button><button class="btn-icon com-del" data-desfazer="${u}" title="Desfazer amizade"><i class="fas fa-user-times"></i></button>`)).join("") : `<p class="com-vazio">Você ainda não tem amigos. Adicione pessoas na aba Pessoas.</p>`;
+    }
+
+    const raiz = () => C.db.ref("comunidade");
+    function adicionar(u) { const up = {}; up[`pedidos/${u}/${C.uid}`] = Date.now(); up[`enviados/${C.uid}/${u}`] = Date.now(); return raiz().update(up); }
+    function cancelar(u) { const up = {}; up[`pedidos/${u}/${C.uid}`] = null; up[`enviados/${C.uid}/${u}`] = null; return raiz().update(up); }
+    function aceitar(u) { const up = {}; up[`amigos/${C.uid}/${u}`] = true; up[`amigos/${u}/${C.uid}`] = true; up[`pedidos/${C.uid}/${u}`] = null; up[`enviados/${u}/${C.uid}`] = null; return raiz().update(up); }
+    function recusar(u) { const up = {}; up[`pedidos/${C.uid}/${u}`] = null; up[`enviados/${u}/${C.uid}`] = null; return raiz().update(up); }
+    function desfazer(u) { if (!confirm("Desfazer amizade com " + nomeDe(u) + "? O chat será desativado.")) return; const up = {}; up[`amigos/${C.uid}/${u}`] = null; up[`amigos/${u}/${C.uid}`] = null; return raiz().update(up); }
+
+    /* ---------- CHAT AO VIVO (somente amigos) ---------- */
+    function abrirChat(u) {
+        if (!C.amigos[u]) { alert("O chat só fica disponível depois que a amizade for aceita."); return; }
+        fecharChat();
+        C.chatCom = u;
+        const p = C.perfis[u] || {};
+        $("com-chat-avatar").src = avatar(p); $("com-chat-nome").textContent = p.nome || "Usuário";
+        $("com-chat").classList.remove("hidden");
+        const r = ref("chats/" + idChat(C.uid, u) + "/mensagens").limitToLast(100);
+        const fn = (s) => {
+            const msgs = Object.values(s.val() || {}).sort((a, b) => a.criado - b.criado);
+            const box = $("com-chat-msgs");
+            box.innerHTML = msgs.length ? msgs.map((m) => `<div class="com-msg ${m.de === C.uid ? "minha" : ""}"><span>${esc(m.texto)}</span><small>${tempo(m.criado || Date.now())}</small></div>`).join("") : `<p class="com-vazio">Diga olá para ${esc(p.nome || "seu amigo")}! 👋</p>`;
+            box.scrollTop = box.scrollHeight;
+        };
+        r.on("value", fn); C.ouvinteChat = () => r.off("value", fn);
+        setTimeout(() => $("com-chat-input").focus(), 50);
+    }
+    function fecharChat() { if (C.ouvinteChat) C.ouvinteChat(); C.ouvinteChat = null; C.chatCom = null; $("com-chat")?.classList.add("hidden"); }
+    function enviarMsg(e) {
+        e.preventDefault();
+        const inp = $("com-chat-input"), texto = inp.value.trim();
+        if (!texto || !C.chatCom) return;
+        if (!C.amigos[C.chatCom]) { alert("Vocês não são mais amigos."); fecharChat(); return; }
+        inp.value = "";
+        ref("chats/" + idChat(C.uid, C.chatCom) + "/mensagens").push({ de: C.uid, para: C.chatCom, texto: texto.slice(0, 1000), criado: firebase.database.ServerValue.TIMESTAMP }).catch((err) => { alert("Mensagem não enviada."); console.error(err); });
+    }
+
+    /* ---------- EVENTOS ---------- */
+    document.addEventListener("DOMContentLoaded", ligar);
+    if (document.readyState !== "loading") ligar();
+    let ligado = false;
+    function ligar() {
+        if (ligado || !$("comunidade-screen")) return; ligado = true;
+        document.querySelectorAll(".btn-comunidade-trigger").forEach((b) => b.addEventListener("click", abrir));
+        $("com-fechar").addEventListener("click", fechar);
+        document.querySelectorAll(".com-tab").forEach((t) => t.addEventListener("click", () => trocarAba(t.dataset.aba)));
+        $("com-form-post").addEventListener("submit", publicar);
+        $("com-btn-link").addEventListener("click", () => $("com-post-link").classList.toggle("hidden"));
+        $("com-arquivo").addEventListener("change", async (e) => {
+            const f = e.target.files[0]; if (!f) return;
+            if (!f.type.startsWith("image/")) { alert("Envie uma imagem. Para vídeos, cole o link (YouTube, MP4...)."); return; }
+            try { C.midia = { tipo: "imagem", url: await comprimirImagem(f) }; $("com-preview").innerHTML = `<img src="${C.midia.url}" alt=""><button type="button" class="btn-icon" id="com-tirar-midia"><i class="fas fa-times"></i></button>`; }
+            catch (err) { alert("Não foi possível ler a imagem."); }
+            e.target.value = "";
+        });
+        $("com-preview").addEventListener("click", (e) => { if (e.target.closest("#com-tirar-midia")) { C.midia = null; $("com-preview").innerHTML = ""; } });
+        $("com-busca-pessoas").addEventListener("input", renderPessoas);
+        $("com-chat-fechar").addEventListener("click", fecharChat);
+        $("com-chat-form").addEventListener("submit", enviarMsg);
+        $("comunidade-screen").addEventListener("submit", (e) => {
+            const f = e.target.closest(".com-form-comentario"); if (!f) return;
+            e.preventDefault(); const inp = f.querySelector("input"), t = inp.value.trim(); if (!t) return;
+            ref("posts/" + f.dataset.post + "/comentarios").push({ uid: C.uid, texto: t.slice(0, 500), criado: firebase.database.ServerValue.TIMESTAMP }); inp.value = "";
+        });
+        $("comunidade-screen").addEventListener("click", (e) => {
+            const b = e.target.closest("button"); if (!b) return; const d = b.dataset;
+            if (d.adicionar) adicionar(d.adicionar);
+            else if (d.cancelar) cancelar(d.cancelar);
+            else if (d.aceitar) aceitar(d.aceitar);
+            else if (d.recusar) recusar(d.recusar);
+            else if (d.desfazer) desfazer(d.desfazer);
+            else if (d.chat) abrirChat(d.chat);
+            else if (d.curtir) { const r = ref(`posts/${d.curtir}/curtidas/${C.uid}`); (C.posts[d.curtir].curtidas || {})[C.uid] ? r.remove() : r.set(true); }
+            else if (d.del && confirm("Apagar esta publicação?")) ref("posts/" + d.del).remove();
+        });
+        firebase.auth().onAuthStateChanged(iniciar);
+    }
+})();
