@@ -3494,3 +3494,65 @@ body.guest-mode-on .theme-switcher-float { display: none !important; }
     .stream-badge { top: 8px; left: 8px; padding: 5px 10px 5px 8px; font-size: 0.66rem; }
     .stream-status { bottom: 56px; font-size: 0.76rem; }
 }
+
+
+/* ==========================================
+   BUSCA DENTRO DA CATEGORIA / SUBCATEGORIA
+   ========================================== */
+.scope-search-bar {
+    display: flex; align-items: center; gap: 10px;
+    margin: 0 0 14px; padding: 8px 12px;
+    background: var(--bg-card); border: 1px solid var(--border-color); border-radius: 8px;
+    max-width: 640px;
+}
+.scope-search-bar.hidden { display: none !important; }
+.scope-search-bar > i { color: var(--text-gray); font-size: 0.9rem; }
+.scope-search-bar:focus-within { border-color: var(--theme-color); }
+.scope-search-bar input {
+    flex: 1; min-width: 0; background: transparent; border: none; outline: none;
+    color: var(--text-white); font-size: 0.92rem; padding: 4px 0;
+}
+.scope-search-bar input::-webkit-search-cancel-button { display: none; }
+.scope-search-clear {
+    background: transparent; border: none; color: var(--text-gray); cursor: pointer;
+    font-size: 0.95rem; padding: 2px 4px; display: flex; align-items: center;
+}
+.scope-search-clear:hover { color: var(--theme-color); }
+.scope-search-clear.hidden { display: none !important; }
+.scope-search-empty { color: var(--text-gray); padding: 20px; grid-column: 1 / -1; font-weight: 500; }
+@media (max-width: 768px) {
+    .scope-search-bar { max-width: none; margin: 0 0 10px; }
+}
+
+/* ==========================================
+   PLAYER ADAPTÁVEL: ASPECTO DA MÍDIA + TAMANHOS
+   ========================================== */
+#raw-player { object-fit: contain; background: #000; }
+#btn-player-size { position: relative; }
+#btn-player-size .player-size-tag {
+    position: absolute; right: 0; bottom: 0; font-size: 0.55rem; font-weight: 700;
+    line-height: 1; padding: 1px 3px; border-radius: 3px;
+    background: var(--theme-color); color: #fff;
+}
+.player-header.compact-mode .player-controls-group #btn-player-size::after { content: "Tamanho: " attr(data-label); }
+.player-header.compact-mode .player-controls-group #btn-player-size .player-size-tag { display: none; }
+
+@media (min-width: 769px) {
+    /* A área da mídia segue a proporção real (16:9, 9:16, 4:3, 21:9...) */
+    .floating-player:not(.player-free) .player-content {
+        padding-top: 0 !important;
+        height: auto !important;
+        aspect-ratio: var(--player-ar, 16 / 9);
+        max-height: calc(100vh - 110px);
+    }
+    .floating-player:not(.player-free) { max-height: calc(100vh - 16px); }
+    .floating-player.with-comments:not(.player-free) .player-content { max-height: 60vh; }
+    /* Redimensionado à mão: a mídia preenche a área sem distorcer */
+    .floating-player.player-free .player-content #raw-player,
+    .floating-player.player-free .player-content #yt-player { object-fit: contain; }
+    .player-header { min-width: 0; }
+    .player-header h3 { min-width: 0; }
+}
+@media (max-width: 768px) {
+    #btn-player-size { display: none !important; }
+}
