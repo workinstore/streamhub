@@ -692,10 +692,22 @@
                 <form id="com-form-post" class="com-card">
                     <textarea id="com-post-texto" maxlength="2000" placeholder="Compartilhe uma ideia, uma mídia, uma dica..."></textarea>
                     <input id="com-post-link" class="hidden" type="url" placeholder="Cole um link (YouTube, vídeo MP4, imagem, site...)">
+                    <div id="com-emojis" class="com-emojis hidden"></div>
+                    <div id="com-yt-painel" class="com-subpainel hidden">
+                        <div class="com-subpainel-busca"><input id="com-yt-termo" type="search" placeholder="Pesquisar vídeos no YouTube..."><button type="button" id="com-yt-buscar" class="com-icone"><i class="fas fa-search"></i></button></div>
+                        <div id="com-yt-resultados" class="com-resultados"></div>
+                    </div>
+                    <div id="com-minhas-painel" class="com-subpainel hidden">
+                        <div class="com-subpainel-busca"><input id="com-minhas-termo" type="search" placeholder="Pesquisar mídia, subcategoria ou categoria da sua conta..."></div>
+                        <div id="com-minhas-resultados" class="com-resultados"></div>
+                    </div>
                     <div id="com-preview"></div>
                     <div class="com-form-barra">
                         <label><i class="fas fa-image"></i> Foto<input id="com-arquivo" type="file" accept="image/*" hidden></label>
-                        <button type="button" id="com-btn-link" class="com-icone"><i class="fas fa-link"></i> Link/Vídeo</button>
+                        <button type="button" id="com-btn-link" class="com-icone"><i class="fas fa-link"></i> Link</button>
+                        <button type="button" id="com-btn-yt" class="com-icone"><i class="fab fa-youtube"></i> YouTube</button>
+                        <button type="button" id="com-btn-minhas" class="com-icone"><i class="fas fa-photo-video"></i> Minhas mídias</button>
+                        <button type="button" id="com-btn-emoji" class="com-icone" title="Emojis"><i class="far fa-smile"></i></button>
                         <button type="submit" id="com-btn-publicar" class="btn-primary">Publicar</button>
                     </div>
                 </form>

@@ -7626,9 +7626,146 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         if (C.aba === "amigos") renderAmigos();
     }
 
+    /* ---------- AVATAR DE COMENTÁRIO (foto ou iniciais em cor RGB aleatória) ---------- */
+    const coresAvatar = {};
+    function corAleatoria(uid) {
+        if (coresAvatar[uid]) return coresAvatar[uid];
+        const salvas = JSON.parse(localStorage.getItem("com_cores_avatar") || "{}");
+        if (!salvas[uid]) {
+            const r = () => 40 + Math.floor(Math.random() * 176);
+            salvas[uid] = `rgb(${r()}, ${r()}, ${r()})`;
+            try { localStorage.setItem("com_cores_avatar", JSON.stringify(salvas)); } catch (e) {}
+        }
+        return (coresAvatar[uid] = salvas[uid]);
+    }
+    function iniciais(nome) {
+        const partes = String(nome || "U").trim().split(/\s+/).filter(Boolean);
+        return ((partes[0] || "U")[0] + (partes.length > 1 ? partes[partes.length - 1][0] : "")).toUpperCase();
+    }
+    function avatarMini(uid) {
+        const p = C.perfis[uid] || {};
+        if (p.foto) return `<img class="com-avatar-mini" src="${esc(p.foto)}" alt="" onerror="this.outerHTML='<span class=&quot;com-avatar-mini com-avatar-iniciais&quot; style=&quot;background:${corAleatoria(uid)}&quot;>${esc(iniciais(p.nome))}</span>'">`;
+        return `<span class="com-avatar-mini com-avatar-iniciais" style="background:${corAleatoria(uid)}">${esc(iniciais(p.nome))}</span>`;
+    }
+
+    /* ---------- EMOJIS ---------- */
+    const EMOJIS = {
+        "Carinhas": "😀 😃 😄 😁 😆 😅 🤣 😂 🙂 😉 😊 😇 🥰 😍 🤩 😘 😋 😜 🤪 😎 🤓 🥳 😏 😒 😔 😢 😭 😤 😠 😡 🤯 😳 🥺 😱 🤔 🤫 🤭 😴 🤤 😷 🤒 🤠 🤡 👻 💀 👽 🤖 💩",
+        "Gestos": "👍 👎 👏 🙌 🙏 🤝 👌 🤌 ✌️ 🤞 🤟 🤘 👊 ✊ 💪 👋 ☝️ 👆 👇 👉 👈 ✍️ 🫶",
+        "Corações": "❤️ 🧡 💛 💚 💙 💜 🖤 🤍 🤎 💔 ❣️ 💕 💞 💓 💗 💖 💘 💝 💯 💥 💫 ✨ 🔥 ⭐ 🌟",
+        "Mídia": "🎬 🎥 📺 📹 🎞️ 🍿 🎵 🎶 🎤 🎧 🎸 🎹 🥁 🎷 🎺 🎻 📻 🎮 🕹️ 📱 💻 📷 📸 🎙️ 📀 💿",
+        "Diversos": "🎉 🎊 🎁 🏆 ⚽ 🏀 🎯 🚀 ✈️ 🚗 🏠 🌍 🌈 ☀️ 🌙 ⚡ ☔ ❄️ 🌹 🌻 🍕 🍔 🍟 🍫 🍰 ☕ 🍺 🐶 🐱 🦁 🐵 🦄 ✅ ❌ ⚠️ ❓ ❗ 🆕 🆗"
+    };
+    function montarEmojis() {
+        const el = $("com-emojis"); if (el.dataset.ok) return; el.dataset.ok = "1";
+        el.innerHTML = Object.entries(EMOJIS).map(([cat, lista]) => `<div class="com-emoji-cat">${cat}</div>` + lista.split(" ").map((e) => `<button type="button" data-emoji="${e}">${e}</button>`).join("")).join("");
+    }
+    function inserirEmoji(e) {
+        const ta = $("com-post-texto"), ini = ta.selectionStart ?? ta.value.length, fim = ta.selectionEnd ?? ta.value.length;
+        ta.value = ta.value.slice(0, ini) + e + ta.value.slice(fim);
+        ta.focus(); ta.selectionStart = ta.selectionEnd = ini + e.length;
+    }
+
+    /* ---------- PAINÉIS DO FORMULÁRIO ---------- */
+    function alternarPainel(id) {
+        ["com-emojis", "com-yt-painel", "com-minhas-painel"].forEach((p) => { if (p !== id) $(p).classList.add("hidden"); });
+        const el = $(id); el.classList.toggle("hidden");
+        return !el.classList.contains("hidden");
+    }
+    function fecharPaineis() { ["com-emojis", "com-yt-painel", "com-minhas-painel"].forEach((p) => $(p)?.classList.add("hidden")); }
+    function mostrarPrevia(m) {
+        C.midia = m; $("com-post-link").value = ""; $("com-post-link").classList.add("hidden");
+        const rotulo = m.tipo === "colecao" ? ({ midia: "Mídia", subcategoria: "Subcategoria", categoria: "Categoria" }[m.nivel] + ` · ${m.itens.length} mídia(s)`) : "Vídeo do YouTube";
+        $("com-preview").innerHTML = `<div class="com-previa-midia">${m.capa ? `<img src="${esc(m.capa)}" alt="">` : ""}<span><strong>${esc(m.titulo)}</strong><br><small>${esc(rotulo)}</small></span><button type="button" class="btn-icon" id="com-tirar-midia"><i class="fas fa-times"></i></button></div>`;
+        fecharPaineis();
+    }
+
+    /* ---------- MINI BUSCA NO YOUTUBE ---------- */
+    C.ytResultados = [];
+    async function buscarYoutube() {
+        const termo = $("com-yt-termo").value.trim(), el = $("com-yt-resultados");
+        if (!termo) return;
+        el.innerHTML = `<p class="com-vazio"><i class="fas fa-spinner fa-spin"></i> Buscando...</p>`;
+        try {
+            const chave = (typeof CONFIG !== "undefined" && CONFIG.YT_API_KEY) || YT_API_KEY_GLOBAL;
+            const r = await fetch(`https://www.googleapis.com/youtube/v3/search?part=snippet&type=video&maxResults=15&q=${encodeURIComponent(termo)}&key=${chave}`);
+            const j = await r.json();
+            if (!r.ok) throw new Error((j.error && j.error.message) || "Erro na busca");
+            C.ytResultados = (j.items || []).filter((i) => i.id && i.id.videoId).map((i) => ({ id: i.id.videoId, titulo: i.snippet.title.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&"), canal: i.snippet.channelTitle, capa: (i.snippet.thumbnails.high || i.snippet.thumbnails.medium || i.snippet.thumbnails.default || {}).url || "" }));
+            el.innerHTML = C.ytResultados.length ? C.ytResultados.map((v, n) => `<button type="button" class="com-resultado" data-ytpick="${n}"><img src="${esc(v.capa)}" alt="" loading="lazy"><span><strong>${esc(v.titulo)}</strong><small>${esc(v.canal)}</small></span></button>`).join("") : `<p class="com-vazio">Nenhum vídeo encontrado.</p>`;
+        } catch (err) { el.innerHTML = `<p class="com-vazio">Não foi possível buscar no YouTube agora.</p>`; console.error(err); }
+    }
+
+    /* ---------- MINHAS MÍDIAS ---------- */
+    const acervo = () => (typeof database !== "undefined" && Array.isArray(database) ? database : []);
+    const limparItem = (i) => ({ "título": i["título"] || i.titulo || "", link: i.link || "", capa: i.capa || "", categoria: i.categoria || "", subcategoria: i.subcategoria || "" });
+    function buscarMinhas() {
+        const termo = ($("com-minhas-termo").value || "").trim().toLowerCase(), el = $("com-minhas-resultados"), db = acervo();
+        if (!db.length) { el.innerHTML = `<p class="com-vazio">Seu acervo está vazio.</p>`; return; }
+        const bate = (s) => !termo || String(s || "").toLowerCase().includes(termo);
+        C.minhasOpcoes = [];
+        const cats = [...new Set(db.map((i) => i.categoria).filter(Boolean))].filter(bate);
+        const subs = []; const vistos = new Set();
+        db.forEach((i) => { const k = i.categoria + "||" + i.subcategoria; if (i.subcategoria && !vistos.has(k) && bate(i.subcategoria)) { vistos.add(k); subs.push({ categoria: i.categoria, subcategoria: i.subcategoria }); } });
+        const midias = db.filter((i) => bate(i["título"]));
+        let html = "";
+        const opcao = (o, icone, sub) => { C.minhasOpcoes.push(o); return `<button type="button" class="com-resultado" data-minhapick="${C.minhasOpcoes.length - 1}">${o.capa ? `<img src="${esc(o.capa)}" alt="" loading="lazy">` : `<span class="com-res-icone"><i class="${icone}"></i></span>`}<span><strong>${esc(o.titulo)}</strong><small>${esc(sub)}</small></span></button>`; };
+        if (cats.length) { html += `<div class="com-res-grupo">Categorias</div>`; cats.slice(0, 20).forEach((c) => { const itens = db.filter((i) => i.categoria === c); html += opcao({ nivel: "categoria", titulo: c, capa: (itens.find((i) => i.capa) || {}).capa || "", itens }, "fas fa-folder", `${itens.length} mídia(s)`); }); }
+        if (subs.length) { html += `<div class="com-res-grupo">Subcategorias</div>`; subs.slice(0, 30).forEach((s) => { const itens = db.filter((i) => i.categoria === s.categoria && i.subcategoria === s.subcategoria); html += opcao({ nivel: "subcategoria", titulo: s.subcategoria, categoria: s.categoria, capa: (itens.find((i) => i.capa) || {}).capa || "", itens }, "fas fa-video", `${s.categoria} · ${itens.length} mídia(s)`); }); }
+        if (midias.length) { html += `<div class="com-res-grupo">Mídias</div>`; midias.slice(0, 40).forEach((m) => { html += opcao({ nivel: "midia", titulo: m["título"] || "Mídia", capa: m.capa || "", itens: [m] }, "fas fa-play-circle", `${m.categoria || ""}${m.subcategoria ? " · " + m.subcategoria : ""}`); }); }
+        el.innerHTML = html || `<p class="com-vazio">Nada encontrado no seu acervo.</p>`;
+    }
+    function escolherMinha(n) {
+        const o = C.minhasOpcoes[n]; if (!o) return;
+        const itens = o.itens.slice(0, 500).map(limparItem);
+        mostrarPrevia({ tipo: "colecao", nivel: o.nivel, titulo: o.titulo, categoria: o.categoria || (itens[0] && itens[0].categoria) || "", capa: o.capa || "", itens });
+    }
+
+    /* ---------- ASSISTIR / ADICIONAR ÀS MINHAS MÍDIAS ---------- */
+    function itensDoPost(id) {
+        const p = C.posts && C.posts[id]; if (!p || !p.midia) return [];
+        const m = p.midia;
+        if (m.tipo === "colecao") return Object.values(m.itens || {}).map(limparItem);
+        if (m.tipo === "youtube") return [{ "título": m.titulo || "Vídeo", link: `https://www.youtube.com/embed/${m.id}`, capa: m.capa || "", categoria: "Comunidade", subcategoria: "Vídeos da Comunidade" }];
+        return [];
+    }
+    function assistirPost(id) {
+        const itens = itensDoPost(id); if (!itens.length) return;
+        try { currentPlaylist = itens; fechar(); playTrack(0); }
+        catch (err) { alert("Não foi possível abrir o player."); console.error(err); }
+    }
+    async function adicionarPost(id, btn) {
+        const itens = itensDoPost(id); if (!itens.length) return;
+        if (typeof database === "undefined" || typeof empurrarBancoIntegralParaServidor !== "function") { alert("Não foi possível acessar suas mídias."); return; }
+        const existentes = new Set(database.map((i) => i.categoria + "||" + i.subcategoria + "||" + i.link));
+        const novos = itens.filter((i) => i.link && !existentes.has(i.categoria + "||" + i.subcategoria + "||" + i.link));
+        if (!novos.length) { alert("Este conteúdo já está nas suas mídias."); return; }
+        if (!confirm(`Adicionar ${novos.length} mídia(s) às suas mídias?`)) return;
+        if (btn) btn.disabled = true;
+        const backup = database.slice();
+        try {
+            novos.forEach((i) => database.push({ ...i, categoria: i.categoria || "Comunidade", subcategoria: i.subcategoria || "Geral" }));
+            await empurrarBancoIntegralParaServidor();
+            if (typeof recarregarDadosDoBanco === "function") await recarregarDadosDoBanco();
+            alert(`${novos.length} mídia(s) adicionada(s) às suas mídias!`);
+        } catch (err) { database = backup; alert("Erro ao adicionar às suas mídias."); console.error(err); }
+        if (btn) btn.disabled = false;
+    }
+
     /* ---------- FEED ---------- */
-    function embedMidia(m) {
+    function embedMidia(m, postId) {
         if (!m) return "";
+        if (m.tipo === "youtube") return `<div class="com-post-video"><iframe src="https://www.youtube.com/embed/${esc(m.id)}" allowfullscreen loading="lazy"></iframe></div>
+            <div class="com-colecao-btns" style="padding:8px 0 0"><button data-addmidias="${postId}"><i class="fas fa-plus"></i> Adicionar às minhas mídias</button></div>`;
+        if (m.tipo === "colecao") {
+            const n = Object.keys(m.itens || {}).length;
+            const selo = { midia: '<i class="fas fa-play-circle"></i> Mídia', subcategoria: '<i class="fas fa-video"></i> Subcategoria', categoria: '<i class="fas fa-folder"></i> Categoria' }[m.nivel] || "Mídia";
+            return `<div class="com-colecao">
+                <div class="com-colecao-capa">${m.capa ? `<img src="${esc(m.capa)}" alt="" loading="lazy">` : ""}<span class="com-colecao-selo">${selo}</span></div>
+                <div class="com-colecao-info"><strong>${esc(m.titulo)}</strong><small>${m.nivel !== "midia" ? `${n} mídia(s)` : ""}${m.nivel === "subcategoria" && m.categoria ? ` · ${esc(m.categoria)}` : ""}</small></div>
+                <div class="com-colecao-btns"><button class="principal" data-assistir="${postId}"><i class="fas fa-play"></i> Assistir</button><button data-addmidias="${postId}"><i class="fas fa-plus"></i> Adicionar às minhas mídias</button></div>
+            </div>`;
+        }
         if (m.tipo === "imagem") return `<img class="com-post-img" src="${esc(m.url)}" alt="Imagem do post" loading="lazy">`;
         const yt = (m.url || "").match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/);
         if (yt) return `<div class="com-post-video"><iframe src="https://www.youtube.com/embed/${yt[1]}" allowfullscreen loading="lazy"></iframe></div>`;
@@ -7653,13 +7790,13 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
                     ${p.uid === C.uid ? `<button class="btn-icon com-del" data-del="${id}" title="Apagar"><i class="fas fa-trash"></i></button>` : ""}
                 </header>
                 ${p.texto ? `<p class="com-post-texto">${esc(p.texto)}</p>` : ""}
-                ${embedMidia(p.midia)}
+                ${embedMidia(p.midia, id)}
                 <div class="com-post-acoes">
                     <button class="com-acao ${curti ? "ativo" : ""}" data-curtir="${id}"><i class="${curti ? "fas" : "far"} fa-heart"></i> ${curtidas || ""}</button>
                     <span class="com-acao"><i class="far fa-comment"></i> ${coments.length || ""}</span>
                 </div>
                 <div class="com-comentarios">
-                    ${coments.map(([, c]) => `<div class="com-comentario"><strong>${esc(nomeDe(c.uid))}</strong> ${esc(c.texto)}</div>`).join("")}
+                    ${coments.map(([, c]) => `<div class="com-comentario">${avatarMini(c.uid)}<div><strong>${esc(nomeDe(c.uid))}</strong>${esc(c.texto)}</div></div>`).join("")}
                     <form class="com-form-comentario" data-post="${id}"><input maxlength="500" placeholder="Escreva um comentário..."><button type="submit" class="btn-icon"><i class="fas fa-paper-plane"></i></button></form>
                 </div>
             </article>`;
@@ -7690,11 +7827,12 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         const texto = $("com-post-texto").value.trim();
         const link = $("com-post-link").value.trim();
         let midia = C.midia || (link ? { tipo: "link", url: link } : null);
+        if (midia && midia.tipo === "link") { const yt = midia.url.match(/(?:youtu\.be\/|v=|shorts\/|embed\/)([\w-]{11})/); if (yt) midia = { tipo: "youtube", id: yt[1], titulo: "Vídeo do YouTube", capa: `https://img.youtube.com/vi/${yt[1]}/hqdefault.jpg` }; }
         if (!texto && !midia) return;
         const btn = $("com-btn-publicar"); btn.disabled = true;
         try {
             await ref("posts").push({ uid: C.uid, texto: texto.slice(0, 2000), midia: midia || null, criado: firebase.database.ServerValue.TIMESTAMP });
-            $("com-form-post").reset(); C.midia = null; $("com-preview").innerHTML = ""; $("com-post-link").classList.add("hidden");
+            $("com-form-post").reset(); C.midia = null; $("com-preview").innerHTML = ""; $("com-post-link").classList.add("hidden"); fecharPaineis();
         } catch (err) { alert("Não foi possível publicar. Verifique as regras da Comunidade no Firebase."); console.error(err); }
         btn.disabled = false;
     }
@@ -7772,7 +7910,17 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         $("com-fechar").addEventListener("click", fechar);
         document.querySelectorAll(".com-tab").forEach((t) => t.addEventListener("click", () => trocarAba(t.dataset.aba)));
         $("com-form-post").addEventListener("submit", publicar);
-        $("com-btn-link").addEventListener("click", () => $("com-post-link").classList.toggle("hidden"));
+        $("com-btn-link").addEventListener("click", () => { fecharPaineis(); $("com-post-link").classList.toggle("hidden"); });
+        $("com-btn-emoji").addEventListener("click", () => { montarEmojis(); alternarPainel("com-emojis"); });
+        $("com-emojis").addEventListener("click", (e) => { const b = e.target.closest("[data-emoji]"); if (b) inserirEmoji(b.dataset.emoji); });
+        $("com-btn-yt").addEventListener("click", () => { if (alternarPainel("com-yt-painel")) $("com-yt-termo").focus(); });
+        $("com-yt-buscar").addEventListener("click", buscarYoutube);
+        $("com-yt-termo").addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); buscarYoutube(); } });
+        $("com-yt-resultados").addEventListener("click", (e) => { const b = e.target.closest("[data-ytpick]"); if (!b) return; const v = C.ytResultados[+b.dataset.ytpick]; if (v) mostrarPrevia({ tipo: "youtube", id: v.id, titulo: v.titulo, capa: v.capa }); });
+        $("com-btn-minhas").addEventListener("click", () => { if (alternarPainel("com-minhas-painel")) { buscarMinhas(); $("com-minhas-termo").focus(); } });
+        $("com-minhas-termo").addEventListener("input", buscarMinhas);
+        $("com-minhas-termo").addEventListener("keydown", (e) => { if (e.key === "Enter") e.preventDefault(); });
+        $("com-minhas-resultados").addEventListener("click", (e) => { const b = e.target.closest("[data-minhapick]"); if (b) escolherMinha(+b.dataset.minhapick); });
         $("com-arquivo").addEventListener("change", async (e) => {
             const f = e.target.files[0]; if (!f) return;
             if (!f.type.startsWith("image/")) { alert("Envie uma imagem. Para vídeos, cole o link (YouTube, MP4...)."); return; }
@@ -7791,7 +7939,9 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         });
         $("comunidade-screen").addEventListener("click", (e) => {
             const b = e.target.closest("button"); if (!b) return; const d = b.dataset;
-            if (d.adicionar) adicionar(d.adicionar);
+            if (d.assistir) assistirPost(d.assistir);
+            else if (d.addmidias) adicionarPost(d.addmidias, b);
+            else if (d.adicionar) adicionar(d.adicionar);
             else if (d.cancelar) cancelar(d.cancelar);
             else if (d.aceitar) aceitar(d.aceitar);
             else if (d.recusar) recusar(d.recusar);
