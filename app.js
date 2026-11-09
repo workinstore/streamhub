@@ -210,6 +210,36 @@ function lerDuracaoDeArquivo(track) {
     });
 }
 
+// ===== VISUALIZAÇÕES =====
+// YouTube: views públicas vindas da API. Links diretos: reproduções do usuário dentro do app.
+const viewsYoutubeCache = {};
+function chaveViewsLocais() { return 'midiaViewsApp_' + (currentUserUid || 'anon'); }
+function lerViewsLocais() { try { return JSON.parse(localStorage.getItem(chaveViewsLocais()) || '{}'); } catch (e) { return {}; } }
+function idViewLocal(track) { return String((track && track.link) || (track && track.título) || ''); }
+function registrarViewLocal(track) {
+    if (!track || extractYoutubeId(track.link || '')) return;
+    const mapa = lerViewsLocais(); const k = idViewLocal(track); if (!k) return;
+    mapa[k] = (mapa[k] || 0) + 1;
+    try { localStorage.setItem(chaveViewsLocais(), JSON.stringify(mapa)); } catch (e) {}
+}
+function formatarViews(n) {
+    if (typeof n !== 'number' || !isFinite(n)) return '';
+    const f = (v, suf) => (v >= 10 ? Math.floor(v) : Math.floor(v * 10) / 10).toString().replace('.', ',') + suf;
+    if (n >= 1e9) return f(n / 1e9, ' bi'); if (n >= 1e6) return f(n / 1e6, ' mi'); if (n >= 1e3) return f(n / 1e3, ' mil');
+    return String(n);
+}
+function seloViews(track) {
+    if (!track) return '';
+    const vid = extractYoutubeId(track.link || '');
+    if (vid) {
+        const n = viewsYoutubeCache[vid];
+        if (n === undefined) return '';
+        return `<span class="views-badge views-yt" title="${n.toLocaleString('pt-BR')} visualizações no YouTube"><i class="fab fa-youtube"></i> ${formatarViews(n)}</span>`;
+    }
+    const n = lerViewsLocais()[idViewLocal(track)] || 0;
+    return `<span class="views-badge views-app" title="${n} reprodução(ões) suas no app"><i class="fas fa-eye"></i> ${formatarViews(n)}</span>`;
+}
+
 async function garantirDuracoes(lista) {
     if (buscandoDuracoes) return;
     const pendentesYt = []; const pendentesArquivo = [];
@@ -225,10 +255,11 @@ async function garantirDuracoes(lista) {
         for (let i = 0; i < pendentesYt.length; i += 50) {
             const bloco = pendentesYt.slice(i, i + 50);
             try {
-                const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=${bloco.join(',')}&key=${CONFIG.YT_API_KEY}`);
+                const res = await fetch(`https://www.googleapis.com/youtube/v3/videos?part=contentDetails,statistics&id=${bloco.join(',')}&key=${CONFIG.YT_API_KEY}`);
                 const data = await res.json();
                 (data.items || []).forEach(item => {
                     duracoesCache[`yt:${item.id}`] = iso8601ParaSegundos(item.contentDetails && item.contentDetails.duration);
+                    if (item.statistics && item.statistics.viewCount !== undefined) viewsYoutubeCache[item.id] = Number(item.statistics.viewCount);
                 });
             } catch (e) {}
             bloco.forEach(id => { if (duracoesCache[`yt:${id}`] === undefined) duracoesCache[`yt:${id}`] = null; });
@@ -815,6 +846,7 @@ function createCard(title, imgSrc, showAddButton = false, isPlaylist = false, cl
         const seg = duracaoDaFaixa(favInfo.track || shareInfo || {});
         const txt = formatarDuracao(seg);
         if (txt) selo = `<span class="duration-badge"><i class="fas fa-clock"></i> ${txt}</span>`;
+        selo += seloViews(favInfo.track || shareInfo);
     }
     const vidCard = extractYoutubeId((shareInfo && shareInfo.link) || '') || extractYoutubeId(imgSrc || '');
     const srcCard = (!imgSrc && vidCard) ? thumbAltaPorId(vidCard) : (imgSrc || 'https://placehold.co/160x90?text=Sem+Capa');
@@ -1092,6 +1124,7 @@ function extractPlaylistId(url) { const reg = /[&?]list=([^#\&\?]+)/; const matc
 
 function playTrack(index) {
     if(currentPlaylist.length === 0) return; currentTrackIndex = index; const track = currentPlaylist[index];
+    try { registrarViewLocal(track); const sv = document.querySelectorAll('.card .views-app'); if (sv.length) setTimeout(() => { try { renderMosaic(); } catch (e) {} }, 0); } catch (e) {}
     if (reproducaoAleatoria && !jaSorteadas.includes(index)) jaSorteadas.push(index);
     if (document.getElementById('player-container')) document.getElementById('player-container').classList.remove('hidden');
     if (document.getElementById('current-track-title')) document.getElementById('current-track-title').innerText = track.título;
