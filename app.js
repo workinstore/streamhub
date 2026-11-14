@@ -7053,7 +7053,7 @@ function rotuloFormatoStream(link, tipo, temVideo) {
     }
     if (ext && EXT_STREAM.test(ext)) return temVideo ? 'VideoTS' : 'AudioTS';
     if (ext) return ext.toUpperCase();
-    return temVideo ? 'IPTV' : 'RÁDIO';
+    return temVideo ? 'IPTV' : 'STREAM';
 }
 function _definirTemVideo(valor) {
     if (valor === null || valor === undefined || streamEstado.temVideo === valor) return;
@@ -7193,7 +7193,7 @@ async function tocarStream(track, link, tipo, video, ehRetentativa) {
     if (ehRetentativa && linkOrig) { streamEstado.link = linkOrig; streamEstado.tipo = tipoOrig; streamEstado.temVideo = videoOrig; }
     else { streamEstado.link = link; streamEstado.tipo = tipo; streamEstado.temVideo = null; }
     const tk = streamEstado.token;
-    const nomes = { hls: 'HLS', dash: 'DASH', flv: 'FLV', mpegts: 'MPEG-TS', radio: 'RÁDIO', playlist: 'PLAYLIST', protocolo: 'RTMP/RTSP', progressivo: 'DIRETO' };
+    const nomes = { hls: 'HLS', dash: 'DASH', flv: 'FLV', mpegts: 'MPEG-TS', radio: 'STREAM2', playlist: 'PLAYLIST', protocolo: 'RTMP/RTSP', progressivo: 'DIRETO' };
     mostrarSeloStream(true, nomes[tipo] || 'STREAM', tipo === 'progressivo' ? false : true);
     mostrarStatusStream('Conectando à transmissão...');
     try { atualizarMetadadosDoSistema(track && track.título, 'Ao vivo', capaPadraoDoAudio(track)); } catch (e) {}
