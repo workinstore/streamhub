@@ -2707,6 +2707,25 @@ function aplicarIdentidadeVisual(c) {
             titulo.innerText = nome;
         }
     }
+    // Logo por extenso também no modal de login (fallback: logo escrita do código)
+    const loginTitulo = document.getElementById("login-title");
+    if (loginTitulo) {
+        if (!loginTitulo.dataset.textoPadrao) loginTitulo.dataset.textoPadrao = loginTitulo.innerText;
+        const textoLogin = loginTitulo.dataset.textoPadrao;
+        if (c.logoExtenso) {
+            loginTitulo.innerHTML = "";
+            const imgL = document.createElement("img");
+            imgL.src = c.logoExtenso;
+            imgL.alt = nome;
+            imgL.className = "brand-logo-extenso-login";
+            imgL.style.cssText = "max-height:60px;max-width:260px;height:auto;display:block;margin:0 auto;";
+            imgL.onerror = () => { loginTitulo.innerText = textoLogin; };
+            loginTitulo.appendChild(imgL);
+            loginTitulo.setAttribute("aria-label", nome);
+        } else {
+            loginTitulo.innerText = textoLogin;
+        }
+    }
     const quadrada = c.logoQuadrada || LOGO_QUADRADA_PADRAO;
     document.querySelectorAll("img[data-logo-quadrada]").forEach(img => {
         img.onerror = () => { img.onerror = null; img.src = LOGO_QUADRADA_PADRAO; };
