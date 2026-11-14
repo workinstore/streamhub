@@ -29,7 +29,7 @@
         <div class="login-box">
             
             <div style="text-align: center; margin-bottom: 20px;">
-                <img src="logo.png" alt="Logo StreamHub" style="max-width: 100px; height: auto; margin-bottom: 10px;">
+                <img src="logo.png" data-logo-quadrada alt="Logo StreamHub" style="max-width: 100px; height: auto; margin-bottom: 10px;">
                 <h2 id="login-title" style="margin: 0;">StreamHub</h2>
             </div>
             
@@ -624,6 +624,37 @@
                     <div class="action-card-json">
                         <label><i class="fas fa-heading"></i> Nome exibido do site</label>
                         <input type="text" id="master-site-name" class="admin-input" placeholder="StreamHub">
+                    </div>
+                    <div class="action-card-json">
+                        <label><i class="fas fa-window-maximize"></i> Título do site (aba do navegador)</label>
+                        <input type="text" id="master-site-title" class="admin-input" placeholder="StreamHub by Di Workin'">
+                    </div>
+                    <div class="action-card-json">
+                        <label><i class="fas fa-square"></i> Logo quadrada (link externo ou upload — em branco usa a padrão)</label>
+                        <input type="text" id="master-logo-square" class="admin-input master-img-url" placeholder="https://... ou envie um arquivo">
+                        <div class="master-img-row" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+                            <input type="file" accept="image/*" class="master-img-file" data-target="master-logo-square">
+                            <button type="button" class="btn-secundary master-img-clear" data-target="master-logo-square">Limpar</button>
+                            <img class="master-img-preview" data-target="master-logo-square" alt="" style="max-height:48px;max-width:200px;display:none;border-radius:4px;">
+                        </div>
+                    </div>
+                    <div class="action-card-json">
+                        <label><i class="fas fa-image"></i> Logo por extenso (substitui o nome escrito no topo — em branco mostra o texto)</label>
+                        <input type="text" id="master-logo-wide" class="admin-input master-img-url" placeholder="https://... ou envie um arquivo">
+                        <div class="master-img-row" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+                            <input type="file" accept="image/*" class="master-img-file" data-target="master-logo-wide">
+                            <button type="button" class="btn-secundary master-img-clear" data-target="master-logo-wide">Limpar</button>
+                            <img class="master-img-preview" data-target="master-logo-wide" alt="" style="max-height:48px;max-width:200px;display:none;border-radius:4px;">
+                        </div>
+                    </div>
+                    <div class="action-card-json">
+                        <label><i class="fas fa-star"></i> Favicon (link externo ou upload)</label>
+                        <input type="text" id="master-favicon" class="admin-input master-img-url" placeholder="https://... ou envie um arquivo">
+                        <div class="master-img-row" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+                            <input type="file" accept="image/*,.ico" class="master-img-file" data-target="master-favicon">
+                            <button type="button" class="btn-secundary master-img-clear" data-target="master-favicon">Limpar</button>
+                            <img class="master-img-preview" data-target="master-favicon" alt="" style="max-height:48px;max-width:200px;display:none;border-radius:4px;">
+                        </div>
                     </div>
                     <button id="btn-master-save-style" class="btn-success-block">Salvar Layout & Estilo Global</button>
                 </div>

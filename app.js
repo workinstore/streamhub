@@ -2682,11 +2682,79 @@ function aplicarConfigGlobal() {
     document.getElementById("btn-open-admin")?.classList.toggle("hidden", !podeAdmin);
     document.getElementById("btn-open-admin-mobile")?.classList.toggle("hidden", !podeAdmin);
 
-    if (c.siteNome) {
-        const titulo = document.getElementById("bc-root");
-        if (titulo) titulo.innerText = c.siteNome;
+    aplicarIdentidadeVisual(c);
+}
+
+// Logos, título e favicon configurados no painel gerencial (link externo ou base64)
+const LOGO_QUADRADA_PADRAO = "logo.png";
+const TITULO_PADRAO_SITE = document.title || "StreamHub";
+function aplicarIdentidadeVisual(c) {
+    c = c || {};
+    const nome = c.siteNome || "StreamHub";
+    const titulo = document.getElementById("bc-root");
+    if (titulo) {
+        if (c.logoExtenso) {
+            titulo.innerHTML = "";
+            const img = document.createElement("img");
+            img.src = c.logoExtenso;
+            img.alt = nome;
+            img.className = "brand-logo-extenso";
+            img.style.cssText = "max-height:36px;max-width:220px;height:auto;display:block;cursor:pointer;";
+            img.onerror = () => { titulo.innerText = nome; };
+            titulo.appendChild(img);
+            titulo.setAttribute("aria-label", nome);
+        } else {
+            titulo.innerText = nome;
+        }
+    }
+    const quadrada = c.logoQuadrada || LOGO_QUADRADA_PADRAO;
+    document.querySelectorAll("img[data-logo-quadrada]").forEach(img => {
+        img.onerror = () => { img.onerror = null; img.src = LOGO_QUADRADA_PADRAO; };
+        img.src = quadrada;
+    });
+    document.title = c.siteTitulo || TITULO_PADRAO_SITE;
+    if (c.favicon) {
+        let link = document.querySelector("link[rel~='icon']");
+        if (!link) { link = document.createElement("link"); link.rel = "icon"; document.head.appendChild(link); }
+        link.removeAttribute("type");
+        link.href = c.favicon;
     }
 }
+
+function atualizarPreviewImagemMaster(id) {
+    const input = document.getElementById(id);
+    const prev = document.querySelector(`.master-img-preview[data-target="${id}"]`);
+    if (!input || !prev) return;
+    const v = input.value.trim();
+    prev.style.display = v ? "" : "none";
+    if (v) prev.src = v; else prev.removeAttribute("src");
+}
+
+document.addEventListener("change", (e) => {
+    const f = e.target.closest && e.target.closest(".master-img-file");
+    if (!f || !f.files || !f.files[0]) return;
+    const arquivo = f.files[0];
+    if (arquivo.size > 1024 * 1024 && !confirm("A imagem tem mais de 1 MB e deixará o site mais lento. Continuar?")) { f.value = ""; return; }
+    const leitor = new FileReader();
+    leitor.onload = () => {
+        const alvo = document.getElementById(f.getAttribute("data-target"));
+        if (alvo) { alvo.value = leitor.result; atualizarPreviewImagemMaster(alvo.id); }
+    };
+    leitor.readAsDataURL(arquivo);
+});
+document.addEventListener("input", (e) => {
+    if (e.target.classList && e.target.classList.contains("master-img-url")) atualizarPreviewImagemMaster(e.target.id);
+});
+document.addEventListener("click", (e) => {
+    const b = e.target.closest && e.target.closest(".master-img-clear");
+    if (!b) return;
+    const id = b.getAttribute("data-target");
+    const alvo = document.getElementById(id);
+    if (alvo) alvo.value = "";
+    const f = document.querySelector(`.master-img-file[data-target="${id}"]`);
+    if (f) f.value = "";
+    atualizarPreviewImagemMaster(id);
+});
 
 /* ---------------------- PAINEL GERENCIAL DO ADMIN ---------------------- */
 
@@ -2883,6 +2951,13 @@ function preencherFormularioEstiloMaster() {
     if (hex) hex.innerText = cor.toUpperCase();
     const nome = document.getElementById("master-site-name");
     if (nome) nome.value = c.siteNome || "StreamHub";
+    const tituloSite = document.getElementById("master-site-title");
+    if (tituloSite) tituloSite.value = c.siteTitulo || "";
+    [["master-logo-square", "logoQuadrada"], ["master-logo-wide", "logoExtenso"], ["master-favicon", "favicon"]].forEach(([id, k]) => {
+        const el = document.getElementById(id);
+        if (el) el.value = c[k] || "";
+        atualizarPreviewImagemMaster(id);
+    });
 
     document.querySelectorAll(".master-theme-btn").forEach(b => {
         const val = b.getAttribute("data-theme") === "youtube" ? "" : `theme-${b.getAttribute("data-theme")}`;
@@ -2984,7 +3059,11 @@ document.addEventListener("DOMContentLoaded", () => {
             salvarConfigGlobal({
                 temaPadrao: tema,
                 corPadrao: document.getElementById("master-color-input").value,
-                siteNome: document.getElementById("master-site-name").value.trim() || "StreamHub"
+                siteNome: document.getElementById("master-site-name").value.trim() || "StreamHub",
+                siteTitulo: document.getElementById("master-site-title").value.trim(),
+                logoQuadrada: document.getElementById("master-logo-square").value.trim(),
+                logoExtenso: document.getElementById("master-logo-wide").value.trim(),
+                favicon: document.getElementById("master-favicon").value.trim()
             });
         }
 
