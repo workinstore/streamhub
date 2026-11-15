@@ -2699,7 +2699,7 @@ function aplicarIdentidadeVisual(c) {
             img.src = c.logoExtenso;
             img.alt = nome;
             img.className = "brand-logo-extenso";
-            img.style.cssText = "max-height:20px;max-width:170px;height:auto;display:block;cursor:pointer;";
+            img.style.cssText = "max-height:22px;max-width:180px;height:auto;display:block;cursor:pointer;";
             img.onerror = () => { titulo.innerText = nome; };
             titulo.appendChild(img);
             titulo.setAttribute("aria-label", nome);
