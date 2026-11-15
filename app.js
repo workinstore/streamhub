@@ -2699,7 +2699,7 @@ function aplicarIdentidadeVisual(c) {
             img.src = c.logoExtenso;
             img.alt = nome;
             img.className = "brand-logo-extenso";
-            img.style.cssText = "max-height:26px;max-width:190px;height:auto;display:block;cursor:pointer;";
+            img.style.cssText = "max-height:20px;max-width:170px;height:auto;display:block;cursor:pointer;";
             img.onerror = () => { titulo.innerText = nome; };
             titulo.appendChild(img);
             titulo.setAttribute("aria-label", nome);
@@ -5543,7 +5543,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
 
     function thumbDe(snippet) {
         const t = snippet?.thumbnails || {};
-        return (t.maxres || t.standard || t.high || t.medium || t.default || {}).url || "https://placehold.co/320x180?text=Sem+capa";
+        return (t.maxres || t.standard || t.high || t.medium || t.default || {}).url || "https://placehold.co/1920x1080?text=Sem+capa";
     }
 
     function numeroCompacto(valor) {
