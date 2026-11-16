@@ -6367,45 +6367,265 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
     }
     window.abrirCanalGuest = abrirCanal;
 
+    // ---------- filtros / pesquisa dentro do canal ----------
+
+    function segundosDe(iso) {
+        const m = String(iso || "").match(/P(?:(\d+)D)?T?(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/);
+        if (!m) return 0;
+        return (+m[1] || 0) * 86400 + (+m[2] || 0) * 3600 + (+m[3] || 0) * 60 + (+m[4] || 0);
+    }
+
+    function barraFiltrosCanal(tipo) {
+        const ehVideo = tipo === "videos";
+        const ordens = ehVideo
+            ? [["recentes", "Mais recentes"], ["antigos", "Mais antigos"], ["populares", "Mais vistos"], ["curtidos", "Mais curtidos"], ["titulo", "Título (A-Z)"], ["titulo-desc", "Título (Z-A)"], ["longos", "Maior duração"], ["curtos", "Menor duração"]]
+            : [["recentes", "Mais recentes"], ["antigos", "Mais antigos"], ["titulo", "Título (A-Z)"], ["titulo-desc", "Título (Z-A)"], ["mais-videos", "Mais vídeos"], ["menos-videos", "Menos vídeos"]];
+        const duracoes = ehVideo ? `
+            <select class="guest-chan-select" id="guest-chan-dur" aria-label="Filtrar por duração">
+                <option value="">Qualquer duração</option>
+                <option value="curto">Curtos (até 4 min)</option>
+                <option value="medio">Médios (4 a 20 min)</option>
+                <option value="longo">Longos (mais de 20 min)</option>
+            </select>` : "";
+        return `
+        <div class="guest-chan-toolbar">
+            <form class="guest-chan-search" id="guest-chan-search-form">
+                <i class="fas fa-search"></i>
+                <input type="search" id="guest-chan-search" placeholder="${ehVideo ? "Pesquisar vídeos neste canal" : "Pesquisar playlists neste canal"}" autocomplete="off">
+                <button type="button" class="guest-chan-clear hidden" id="guest-chan-clear" aria-label="Limpar pesquisa"><i class="fas fa-xmark"></i></button>
+            </form>
+            <div class="guest-chan-selects">
+                <select class="guest-chan-select" id="guest-chan-ordem" aria-label="Ordenar">
+                    ${ordens.map(o => `<option value="${o[0]}">${o[1]}</option>`).join("")}
+                </select>
+                ${duracoes}
+            </div>
+        </div>
+        <p class="guest-chan-status" id="guest-chan-status"></p>
+        <div id="guest-chan-list"></div>`;
+    }
+
+    function ligarBarraFiltros(alvo, aoMudar) {
+        const input = alvo.querySelector("#guest-chan-search");
+        const limpar = alvo.querySelector("#guest-chan-clear");
+        const disparar = () => { limpar.classList.toggle("hidden", !input.value); aoMudar(); };
+        alvo.querySelector("#guest-chan-search-form").onsubmit = (ev) => { ev.preventDefault(); disparar(); };
+        let t = null;
+        input.oninput = () => { limpar.classList.toggle("hidden", !input.value); clearTimeout(t); t = setTimeout(disparar, 600); };
+        limpar.onclick = () => { input.value = ""; disparar(); input.focus(); };
+        alvo.querySelector("#guest-chan-ordem").onchange = disparar;
+        const dur = alvo.querySelector("#guest-chan-dur");
+        if (dur) dur.onchange = disparar;
+        return () => ({
+            termo: input.value.trim(),
+            ordem: alvo.querySelector("#guest-chan-ordem").value,
+            duracao: dur ? dur.value : ""
+        });
+    }
+
+    function ordenarItens(lista, ordem, tipo) {
+        const data = x => new Date(x.snippet?.publishedAt || 0).getTime();
+        const titulo = x => decodificarHtml(x.snippet?.title || "").toLowerCase();
+        const l = lista.slice();
+        const cmp = {
+            "recentes": (a, b) => data(b) - data(a),
+            "antigos": (a, b) => data(a) - data(b),
+            "populares": (a, b) => (+b.statistics?.viewCount || 0) - (+a.statistics?.viewCount || 0),
+            "curtidos": (a, b) => (+b.statistics?.likeCount || 0) - (+a.statistics?.likeCount || 0),
+            "titulo": (a, b) => titulo(a).localeCompare(titulo(b), "pt-BR"),
+            "titulo-desc": (a, b) => titulo(b).localeCompare(titulo(a), "pt-BR"),
+            "longos": (a, b) => segundosDe(b.contentDetails?.duration) - segundosDe(a.contentDetails?.duration),
+            "curtos": (a, b) => segundosDe(a.contentDetails?.duration) - segundosDe(b.contentDetails?.duration),
+            "mais-videos": (a, b) => (+b.contentDetails?.itemCount || 0) - (+a.contentDetails?.itemCount || 0),
+            "menos-videos": (a, b) => (+a.contentDetails?.itemCount || 0) - (+b.contentDetails?.itemCount || 0)
+        }[ordem];
+        return cmp ? l.sort(cmp) : l;
+    }
+
+    function passaDuracao(v, faixa) {
+        if (!faixa) return true;
+        const s = segundosDe(v.contentDetails?.duration);
+        if (faixa === "curto") return s > 0 && s <= 240;
+        if (faixa === "medio") return s > 240 && s <= 1200;
+        if (faixa === "longo") return s > 1200;
+        return true;
+    }
+
+    function normalizar(t) {
+        return decodificarHtml(String(t || "")).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    }
+
+    async function detalhesDeVideos(ids) {
+        let out = [];
+        for (let i = 0; i < ids.length; i += 50) {
+            const lote = ids.slice(i, i + 50).join(",");
+            if (!lote) continue;
+            const d = await ytApi("videos", { part: "snippet,statistics,contentDetails", id: lote });
+            out = out.concat(d.items || []);
+        }
+        return out;
+    }
+
     async function abaVideosDoCanal(c) {
         const alvo = document.getElementById("guest-chan-body");
-        alvo.innerHTML = `<div class="guest-loading"><i class="fas fa-circle-notch fa-spin"></i> Carregando vídeos...</div>`;
         const uploads = c.contentDetails?.relatedPlaylists?.uploads || idDoUploads(c.id);
-        gs.nextPageToken = "";
-        const carregar = async (primeira) => {
-            const d = await ytApi("playlistItems", {
-                part: "snippet,contentDetails", playlistId: uploads, maxResults: 24,
-                pageToken: primeira ? "" : gs.nextPageToken
-            });
-            gs.nextPageToken = d.nextPageToken || "";
-            const ids = (d.items || []).map(i => i.contentDetails?.videoId).filter(Boolean).join(",");
-            const det = ids ? (await ytApi("videos", { part: "snippet,statistics,contentDetails", id: ids })).items || [] : [];
-            const html = det.map(cardVideo).join("");
-            if (primeira) alvo.innerHTML = `<div class="guest-grid" id="guest-grid">${html || `<p class="guest-vazio">Este canal não tem vídeos públicos.</p>`}</div>`;
+        alvo.innerHTML = barraFiltrosCanal("videos");
+        const lista = alvo.querySelector("#guest-chan-list");
+        const status = alvo.querySelector("#guest-chan-status");
+        const LIMITE_IDS = 1000;   // teto de vídeos varridos para ordenações completas
+        const POR_PAGINA = 24;
+        let geracao = 0;
+
+        // Estado da consulta atual
+        let st = null;
+
+        const lerFiltros = ligarBarraFiltros(alvo, () => iniciar());
+
+        const renderPagina = async (primeira) => {
+            const minhaGeracao = geracao;
+            let novos = [];
+            if (st.modo === "uploads") {
+                // Paginação direta do upload (mais recentes)
+                while (novos.length < POR_PAGINA && (primeira && !st.inicioFeito || st.token)) {
+                    st.inicioFeito = true;
+                    const d = await ytApi("playlistItems", { part: "contentDetails", playlistId: uploads, maxResults: 50, pageToken: st.token || "" });
+                    st.token = d.nextPageToken || "";
+                    const ids = (d.items || []).map(i => i.contentDetails?.videoId).filter(Boolean);
+                    let det = await detalhesDeVideos(ids);
+                    det = det.filter(v => passaDuracao(v, st.f.duracao));
+                    novos = novos.concat(ordenarItens(det, "recentes"));
+                    if (!st.f.duracao) break;
+                }
+            } else {
+                // Lista completa de IDs já conhecida: ordena/filtra e mostra em fatias
+                while (novos.length < POR_PAGINA && st.cursor < st.ids.length) {
+                    const fatia = st.ids.slice(st.cursor, st.cursor + 50);
+                    st.cursor += fatia.length;
+                    let det = await detalhesDeVideos(fatia);
+                    const ordemIdx = new Map(fatia.map((id, i) => [id, i]));
+                    det.sort((a, b) => ordemIdx.get(a.id) - ordemIdx.get(b.id));
+                    novos = novos.concat(det.filter(v => passaDuracao(v, st.f.duracao)));
+                }
+            }
+            if (minhaGeracao !== geracao) return;
+            const html = novos.map(cardVideo).join("");
+            if (primeira) lista.innerHTML = `<div class="guest-grid" id="guest-grid">${html || `<p class="guest-vazio">Nenhum vídeo encontrado com esses filtros.</p>`}</div>`;
             else document.getElementById("guest-grid").insertAdjacentHTML("beforeend", html);
-            ligarCliquesDosCards(alvo);
-            botaoCarregarMais(() => carregar(false));
+            ligarCliquesDosCards(lista);
+            const temMais = st.modo === "uploads" ? !!st.token : st.cursor < st.ids.length;
+            gs.nextPageToken = temMais ? "mais" : "";
+            botaoCarregarMais(() => renderPagina(false));
         };
-        try { await carregar(true); } catch (e) { alvo.innerHTML = ""; mostrarErroNoBloco(alvo, e); }
+
+        const iniciar = async () => {
+            const minhaGeracao = ++geracao;
+            const f = lerFiltros();
+            st = { f, modo: "uploads", token: "", ids: [], cursor: 0 };
+            areaMais().innerHTML = "";
+            status.textContent = "";
+            lista.innerHTML = `<div class="guest-loading"><i class="fas fa-circle-notch fa-spin"></i> ${f.termo ? "Pesquisando no canal..." : "Carregando vídeos..."}</div>`;
+            try {
+                if (!f.termo && f.ordem === "recentes") {
+                    // caminho rápido
+                } else if (f.termo) {
+                    // Pesquisa dentro do canal (API de busca), depois ordena localmente
+                    let ids = [], token = "";
+                    const ordemApi = f.ordem === "populares" ? "viewCount" : (f.ordem === "titulo" ? "title" : (f.ordem === "recentes" || f.ordem === "antigos" ? "date" : "relevance"));
+                    for (let p = 0; p < 4; p++) {
+                        const d = await ytApi("search", { part: "snippet", type: "video", channelId: c.id, q: f.termo, order: ordemApi, maxResults: 50, pageToken: token });
+                        ids = ids.concat((d.items || []).map(i => i.id?.videoId).filter(Boolean));
+                        token = d.nextPageToken || "";
+                        if (!token) break;
+                    }
+                    if (minhaGeracao !== geracao) return;
+                    const det = await detalhesDeVideos(ids);
+                    const ordenados = ordenarItens(det, f.ordem);
+                    st.modo = "lista";
+                    st.ids = ordenados.map(v => v.id);
+                    status.textContent = `${ordenados.length} resultado(s) para "${f.termo}"`;
+                } else {
+                    // Ordenações que exigem varrer o canal: coleta IDs do upload
+                    let ids = [], token = "";
+                    do {
+                        const d = await ytApi("playlistItems", { part: "contentDetails", playlistId: uploads, maxResults: 50, pageToken: token });
+                        ids = ids.concat((d.items || []).map(i => i.contentDetails?.videoId).filter(Boolean));
+                        token = d.nextPageToken || "";
+                        if (minhaGeracao !== geracao) return;
+                        lista.innerHTML = `<div class="guest-loading"><i class="fas fa-circle-notch fa-spin"></i> Organizando vídeos do canal... (${ids.length})</div>`;
+                    } while (token && ids.length < LIMITE_IDS);
+                    const truncado = !!token;
+                    if (f.ordem === "antigos") {
+                        st.ids = ids.reverse();
+                    } else {
+                        // Para métricas (views, curtidas, duração, título) precisa dos detalhes
+                        const det = await detalhesDeVideos(ids);
+                        if (minhaGeracao !== geracao) return;
+                        st.ids = ordenarItens(det, f.ordem).map(v => v.id);
+                    }
+                    st.modo = "lista";
+                    if (truncado) status.textContent = `Canal muito grande: ordenação aplicada aos ${LIMITE_IDS} vídeos mais recentes${f.ordem === "antigos" ? " (do mais antigo entre eles ao mais novo)" : ""}.`;
+                }
+                if (minhaGeracao !== geracao) return;
+                await renderPagina(true);
+            } catch (e) { if (minhaGeracao === geracao) { lista.innerHTML = ""; mostrarErroNoBloco(lista, e); } }
+        };
+
+        iniciar();
     }
 
     async function abaPlaylistsDoCanal(c) {
         const alvo = document.getElementById("guest-chan-body");
-        alvo.innerHTML = `<div class="guest-loading"><i class="fas fa-circle-notch fa-spin"></i> Carregando playlists...</div>`;
-        gs.nextPageToken = "";
-        const carregar = async (primeira) => {
-            const d = await ytApi("playlists", {
-                part: "snippet,contentDetails", channelId: c.id, maxResults: 24,
-                pageToken: primeira ? "" : gs.nextPageToken
-            });
-            gs.nextPageToken = d.nextPageToken || "";
-            const html = (d.items || []).map(cardPlaylist).join("");
-            if (primeira) alvo.innerHTML = `<div class="guest-grid" id="guest-grid">${html || `<p class="guest-vazio">Este canal não tem playlists públicas.</p>`}</div>`;
+        alvo.innerHTML = barraFiltrosCanal("playlists");
+        const lista = alvo.querySelector("#guest-chan-list");
+        const status = alvo.querySelector("#guest-chan-status");
+        const POR_PAGINA = 24;
+        let todas = null;      // cache de todas as playlists do canal
+        let filtradas = [];
+        let cursor = 0;
+        let geracao = 0;
+
+        const lerFiltros = ligarBarraFiltros(alvo, () => aplicar());
+
+        const mostrarMais = (primeira) => {
+            const fatia = filtradas.slice(cursor, cursor + POR_PAGINA);
+            cursor += fatia.length;
+            const html = fatia.map(cardPlaylist).join("");
+            if (primeira) lista.innerHTML = `<div class="guest-grid" id="guest-grid">${html || `<p class="guest-vazio">Nenhuma playlist encontrada.</p>`}</div>`;
             else document.getElementById("guest-grid").insertAdjacentHTML("beforeend", html);
-            ligarCliquesDosCards(alvo);
-            botaoCarregarMais(() => carregar(false));
+            ligarCliquesDosCards(lista);
+            gs.nextPageToken = cursor < filtradas.length ? "mais" : "";
+            botaoCarregarMais(async () => mostrarMais(false));
         };
-        try { await carregar(true); } catch (e) { alvo.innerHTML = ""; mostrarErroNoBloco(alvo, e); }
+
+        const aplicar = async () => {
+            const minhaGeracao = ++geracao;
+            const f = lerFiltros();
+            areaMais().innerHTML = "";
+            try {
+                if (!todas) {
+                    lista.innerHTML = `<div class="guest-loading"><i class="fas fa-circle-notch fa-spin"></i> Carregando playlists...</div>`;
+                    let acc = [], token = "", p = 0;
+                    do {
+                        const d = await ytApi("playlists", { part: "snippet,contentDetails", channelId: c.id, maxResults: 50, pageToken: token });
+                        acc = acc.concat(d.items || []);
+                        token = d.nextPageToken || "";
+                    } while (token && ++p < 20);
+                    todas = acc;
+                }
+                if (minhaGeracao !== geracao) return;
+                const termoN = normalizar(f.termo);
+                filtradas = ordenarItens(
+                    todas.filter(p => !termoN || normalizar(p.snippet?.title).includes(termoN) || normalizar(p.snippet?.description).includes(termoN)),
+                    f.ordem
+                );
+                status.textContent = f.termo ? `${filtradas.length} playlist(s) para "${f.termo}"` : (todas.length ? `${todas.length} playlist(s) no canal` : "");
+                cursor = 0;
+                if (!todas.length) { lista.innerHTML = `<p class="guest-vazio">Este canal não tem playlists públicas.</p>`; return; }
+                mostrarMais(true);
+            } catch (e) { lista.innerHTML = ""; mostrarErroNoBloco(lista, e); }
+        };
+
+        aplicar();
     }
 
     function abaSobreDoCanal(c) {
