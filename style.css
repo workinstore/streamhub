@@ -3795,3 +3795,12 @@ body.comunidade-aberta { overflow: hidden; }
     }
     .guest-watch, .guest-watch-main { overflow: visible; }
 }
+
+/* ==========================================
+   MINI YOUTUBE — PLAYER COLADO AO CABEÇALHO (somente mobile)
+   Remove o espaço entre o cabeçalho e o player fixo
+   ========================================== */
+@media (max-width: 820px) {
+    .guest-main:has(.guest-watch) { padding-top: 0; }
+    .guest-watch .guest-player-box { margin-top: 0; top: 0; }
+}
