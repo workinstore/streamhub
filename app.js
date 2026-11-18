@@ -642,8 +642,10 @@ function checkSession() {
             }
 
             initApp();
+            esconderCarregandoLogin();
             return;
         }
+        esconderCarregandoLogin();
         limparInterfaceLocal();
     });
 }
@@ -660,6 +662,23 @@ function configurarEventosLogin() {
     if (btnLogin) { btnLogin.onclick = (e) => { e.preventDefault(); handleLogin(); }; }
 }
 
+// Tela de carregamento com animação spin exibida durante o login
+function mostrarCarregandoLogin(texto) {
+    let ov = document.getElementById('login-loading-overlay');
+    if (!ov) {
+        ov = document.createElement('div');
+        ov.id = 'login-loading-overlay';
+        ov.innerHTML = '<div class="login-loading-box"><div class="login-spinner"></div><p class="login-loading-text"></p></div>';
+        document.body.appendChild(ov);
+    }
+    ov.querySelector('.login-loading-text').textContent = texto || 'Entrando...';
+    requestAnimationFrame(() => ov.classList.add('ativo'));
+}
+function esconderCarregandoLogin() {
+    const ov = document.getElementById('login-loading-overlay');
+    if (ov) ov.classList.remove('ativo');
+}
+
 function handleLogin() {
     const elUser = document.getElementById('login-user');
     const elPass = document.getElementById('login-pass');
@@ -670,9 +689,11 @@ function handleLogin() {
     
     const btnLogin = document.getElementById('btn-login');
     btnLogin.innerText = "Autenticando..."; btnLogin.disabled = true;
+    mostrarCarregandoLogin("Autenticando...");
 
     firebase.auth().signInWithEmailAndPassword(inputEmail, inputPass)
         .catch((error) => {
+            esconderCarregandoLogin();
             uiAlert("Erro na Autenticação: " + error.message);
             btnLogin.innerText = "Entrar"; btnLogin.disabled = false;
         });
@@ -1710,10 +1731,12 @@ function setupEventListeners() {
             const btnGoogle = e.target.closest('#btn-google-login');
             btnGoogle.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Conectando...';
             btnGoogle.disabled = true;
+            mostrarCarregandoLogin("Conectando com o Google...");
 
             firebase.auth().signInWithPopup(googleProvider)
                 .then((resultado) => { guardarTokenGoogle(resultado); })
                 .catch((error) => {
+                    esconderCarregandoLogin();
                     uiAlert("Erro ao logar com o Google: " + error.message);
                     btnGoogle.innerHTML = '<i class="fab fa-google"></i> Entrar com o Google';
                     btnGoogle.disabled = false;
