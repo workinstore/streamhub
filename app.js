@@ -1,3 +1,63 @@
+// ===== Balões de aviso estilizados (substituem alert/confirm/prompt nativos) =====
+function uiDialog({ message = "", type = "alert", defaultValue = "" }) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.className = 'ui-dialog-overlay';
+        const box = document.createElement('div');
+        box.className = 'ui-dialog-box ui-dialog-' + type;
+        box.setAttribute('role', type === 'alert' ? 'alertdialog' : 'dialog');
+        const icon = { alert: 'fa-circle-info', confirm: 'fa-triangle-exclamation', prompt: 'fa-pen' }[type];
+        const msg = document.createElement('p');
+        msg.className = 'ui-dialog-message';
+        msg.textContent = String(message);
+        box.innerHTML = `<div class="ui-dialog-icon"><i class="fas ${icon}"></i></div>`;
+        box.appendChild(msg);
+        let input = null;
+        if (type === 'prompt') {
+            input = document.createElement('input');
+            input.type = 'text'; input.className = 'ui-dialog-input'; input.value = defaultValue ?? '';
+            box.appendChild(input);
+        }
+        const actions = document.createElement('div');
+        actions.className = 'ui-dialog-actions';
+        const ok = document.createElement('button');
+        ok.type = 'button'; ok.className = 'ui-dialog-btn ui-dialog-btn-primary';
+        ok.textContent = type === 'confirm' ? 'Confirmar' : 'OK';
+        let cancel = null;
+        if (type !== 'alert') {
+            cancel = document.createElement('button');
+            cancel.type = 'button'; cancel.className = 'ui-dialog-btn ui-dialog-btn-secondary';
+            cancel.textContent = 'Cancelar';
+            actions.appendChild(cancel);
+        }
+        actions.appendChild(ok);
+        box.appendChild(actions);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        requestAnimationFrame(() => overlay.classList.add('show'));
+        const close = (val) => {
+            document.removeEventListener('keydown', onKey, true);
+            overlay.classList.remove('show');
+            setTimeout(() => overlay.remove(), 200);
+            resolve(val);
+        };
+        const okVal = () => type === 'prompt' ? input.value : true;
+        const cancelVal = type === 'prompt' ? null : (type === 'confirm' ? false : undefined);
+        const onKey = (e) => {
+            if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(cancelVal); }
+            else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(okVal()); }
+        };
+        document.addEventListener('keydown', onKey, true);
+        ok.addEventListener('click', () => close(okVal()));
+        if (cancel) cancel.addEventListener('click', () => close(cancelVal));
+        overlay.addEventListener('click', (e) => { if (e.target === overlay) close(cancelVal); });
+        setTimeout(() => (input ? (input.focus(), input.select()) : ok.focus()), 50);
+    });
+}
+function uiAlert(message) { return uiDialog({ message, type: 'alert' }); }
+function uiConfirm(message) { return uiDialog({ message, type: 'confirm' }); }
+function uiPrompt(message, defaultValue = '') { return uiDialog({ message, type: 'prompt', defaultValue }); }
+
 // ==========================================
 // CONFIGURAÇÃO INICIAL E CREDENCIAIS DO APP
 // ==========================================
@@ -606,14 +666,14 @@ function handleLogin() {
     if(!elUser || !elPass) return;
     const inputEmail = elUser.value.trim().toLowerCase();
     const inputPass = elPass.value.trim();
-    if (!inputEmail || !inputPass) return alert("Preencha todos os campos!");
+    if (!inputEmail || !inputPass) return uiAlert("Preencha todos os campos!");
     
     const btnLogin = document.getElementById('btn-login');
     btnLogin.innerText = "Autenticando..."; btnLogin.disabled = true;
 
     firebase.auth().signInWithEmailAndPassword(inputEmail, inputPass)
         .catch((error) => {
-            alert("Erro na Autenticação: " + error.message);
+            uiAlert("Erro na Autenticação: " + error.message);
             btnLogin.innerText = "Entrar"; btnLogin.disabled = false;
         });
 }
@@ -624,19 +684,19 @@ function handlePasswordRecovery() {
     if (!elEmail) return;
     
     const email = elEmail.value.trim().toLowerCase();
-    if (!email) return alert("Por favor, digite o seu e-mail cadastrado!");
+    if (!email) return uiAlert("Por favor, digite o seu e-mail cadastrado!");
     
     const btnRecover = document.getElementById('btn-recover-submit');
     btnRecover.innerText = "Enviando link..."; btnRecover.disabled = true;
     
     firebase.auth().sendPasswordResetEmail(email)
         .then(() => {
-            alert(`Link de redefinição enviado com sucesso para: ${email}\nVerifique a sua caixa de entrada ou spam!`);
+            uiAlert(`Link de redefinição enviado com sucesso para: ${email}\nVerifique a sua caixa de entrada ou spam!`);
             document.getElementById('form-recuperar-fluxo').reset();
             alternarAbasLogin('login'); // Retorna automaticamente para a tela de login
         })
         .catch((error) => {
-            alert("Erro ao solicitar link: " + error.message);
+            uiAlert("Erro ao solicitar link: " + error.message);
         })
         .finally(() => {
             btnRecover.innerText = "Enviar Link de Recuperação"; btnRecover.disabled = false;
@@ -879,31 +939,31 @@ function createCard(title, imgSrc, showAddButton = false, isPlaylist = false, cl
     }
     const mediaDelete = card.querySelector('.media-delete-badge');
     if (mediaDelete && realIndex >= 0) {
-        mediaDelete.addEventListener('click', (e) => {
+        mediaDelete.addEventListener('click', async (e) => {
             e.preventDefault(); e.stopPropagation();
-            if (confirm(`Excluir a mídia "${title}"?`)) deletarMidiaUnica(realIndex);
+            if (await uiConfirm(`Excluir a mídia "${title}"?`)) deletarMidiaUnica(realIndex);
         });
     }
     const collectionEdit = card.querySelector('.collection-edit-btn');
     if (collectionEdit && favInfo) {
-        collectionEdit.addEventListener('click', (e) => {
+        collectionEdit.addEventListener('click', async (e) => {
             e.preventDefault(); e.stopPropagation();
             if (favInfo.tipo === 'categoria') {
-                const novoNome = prompt('Novo nome para a Categoria:', favInfo.categoria);
+                const novoNome = await uiPrompt('Novo nome para a Categoria:', favInfo.categoria);
                 if (novoNome && novoNome.trim() && novoNome.trim() !== favInfo.categoria) renomearCategoriaCompleta(favInfo.categoria, novoNome.trim());
             } else {
-                const novoNome = prompt('Novo nome para a Subcategoria:', favInfo.subcategoria);
+                const novoNome = await uiPrompt('Novo nome para a Subcategoria:', favInfo.subcategoria);
                 if (novoNome && novoNome.trim() && novoNome.trim() !== favInfo.subcategoria) renomearSubcategoriaCompleta(favInfo.categoria, favInfo.subcategoria, novoNome.trim());
             }
         });
     }
     const collectionDelete = card.querySelector('.collection-delete-btn');
     if (collectionDelete && favInfo) {
-        collectionDelete.addEventListener('click', (e) => {
+        collectionDelete.addEventListener('click', async (e) => {
             e.preventDefault(); e.stopPropagation();
             if (favInfo.tipo === 'categoria') {
-                if (confirm(`Excluir a categoria "${favInfo.categoria}" e todo o seu conteúdo?`)) deletarCategoriaCompleta(favInfo.categoria);
-            } else if (confirm(`Excluir a subcategoria "${favInfo.subcategoria}" e todo o seu conteúdo?`)) {
+                if (await uiConfirm(`Excluir a categoria "${favInfo.categoria}" e todo o seu conteúdo?`)) deletarCategoriaCompleta(favInfo.categoria);
+            } else if (await uiConfirm(`Excluir a subcategoria "${favInfo.subcategoria}" e todo o seu conteúdo?`)) {
                 deletarSubcategoria(favInfo.categoria, favInfo.subcategoria);
             }
         });
@@ -954,7 +1014,7 @@ function configurarEventosBuscaCanal() {
     const executarBusca = async (e) => {
         if(e) e.preventDefault();
         const termo = input?.value.trim();
-        if(!termo) return alert("Digite o nome do canal.");
+        if(!termo) return uiAlert("Digite o nome do canal.");
         
         scrollContainer.innerHTML = '<h3>Buscando...</h3>';
         scrollContainer.style.display = 'block';
@@ -1046,8 +1106,8 @@ async function searchYouTubeGlobal(query) {
 async function peekPlaylistContents(playlistId) {
     try {
         const res = await fetch(`https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&maxResults=50&playlistId=${playlistId}&key=${CONFIG.YT_API_KEY}`); const data = await res.json();
-        if(data.items) { alert(`Mídias:\n\n` + data.items.map((item, idx) => `${idx + 1}. ${item.snippet.title}`).join('\n').substring(0, 1200)); }
-    } catch(e) { alert("Erro playlist."); }
+        if(data.items) { uiAlert(`Mídias:\n\n` + data.items.map((item, idx) => `${idx + 1}. ${item.snippet.title}`).join('\n').substring(0, 1200)); }
+    } catch(e) { uiAlert("Erro playlist."); }
 }
 
 function inicializarSeletorCoresLinear() {
@@ -1234,7 +1294,7 @@ function renderCrudManager() {
 
     categories.sort().forEach(cat => {
         if(!cat) return;
-        const catRow = createCrudRow(cat, 'categoria', () => { let n = prompt("Novo nome para a Categoria:", cat); if(n && n.trim() !== "") renomearCategoriaCompleta(cat, n.trim()); }, () => { if(confirm(`Excluir ${cat}?`)) deletarCategoriaCompleta(cat); }, () => downloadJSON(montarPacoteBackup(database.filter(item => item.categoria === cat), [cat]), `cat_${cat}`));
+        const catRow = createCrudRow(cat, 'categoria', async () => { let n = await uiPrompt("Novo nome para a Categoria:", cat); if(n && n.trim() !== "") renomearCategoriaCompleta(cat, n.trim()); }, async () => { if(await uiConfirm(`Excluir ${cat}?`)) deletarCategoriaCompleta(cat); }, () => downloadJSON(montarPacoteBackup(database.filter(item => item.categoria === cat), [cat]), `cat_${cat}`));
         const subContainer = document.createElement('div'); subContainer.style.display = expandedCrudCats[cat] ? 'block' : 'none';
         
         catRow.addEventListener('click', (e) => { 
@@ -1248,7 +1308,7 @@ function renderCrudManager() {
         const nodeName = btoa(unescape(encodeURIComponent(cat))).replace(/=/g, ""); if(canaisDinamicos[nodeName]) subcategories.push("Vídeos Recentes");
 
         subcategories.sort().forEach(sub => {
-            const subRow = createCrudRow(sub, 'subcategoria', sub === "Vídeos Recentes" ? null : () => { let n = prompt("Novo nome para a Subcategoria:", sub); if(n && n.trim() !== "") renomearSubcategoriaCompleta(cat, sub, n.trim()); }, () => { if(confirm(`Excluir a subcategoria ${sub}?`)) deletarSubcategoria(cat, sub); }, () => downloadJSON(montarPacoteBackup(database.filter(item => item.categoria === cat && item.subcategoria === sub), sub === "Vídeos Recentes" ? [cat] : []), `sub_${sub}`));
+            const subRow = createCrudRow(sub, 'subcategoria', sub === "Vídeos Recentes" ? null : async () => { let n = await uiPrompt("Novo nome para a Subcategoria:", sub); if(n && n.trim() !== "") renomearSubcategoriaCompleta(cat, sub, n.trim()); }, async () => { if(await uiConfirm(`Excluir a subcategoria ${sub}?`)) deletarSubcategoria(cat, sub); }, () => downloadJSON(montarPacoteBackup(database.filter(item => item.categoria === cat && item.subcategoria === sub), sub === "Vídeos Recentes" ? [cat] : []), `sub_${sub}`));
             const mediaContainer = document.createElement('div'); mediaContainer.style.display = expandedCrudSubs[cat + '_' + sub] ? 'block' : 'none';
             
             subRow.addEventListener('click', (e) => { 
@@ -1263,7 +1323,7 @@ function renderCrudManager() {
             } else {
                 database.forEach((item, idx) => {
                     if(item.categoria === cat && item.subcategoria === sub) {
-                        mediaContainer.appendChild(createCrudRow(item.título, 'mídia', () => openAdvancedEditModal(idx), () => { if(confirm(`Excluir a mídia: ${item.título}?`)) deletarMidiaUnica(idx); }, () => downloadJSON(item, item.título)));
+                        mediaContainer.appendChild(createCrudRow(item.título, 'mídia', () => openAdvancedEditModal(idx), async () => { if(await uiConfirm(`Excluir a mídia: ${item.título}?`)) deletarMidiaUnica(idx); }, () => downloadJSON(item, item.título)));
                     }
                 });
             }
@@ -1295,7 +1355,7 @@ async function renomearCategoriaCompleta(antiga, nova) {
         } 
         await recarregarDadosDoBanco(); 
         renderCrudManager(); 
-    } catch(e){ console.error("Erro ao renomear categoria:", e); alert("Erro ao renomear categoria: " + e.message); } 
+    } catch(e){ console.error("Erro ao renomear categoria:", e); uiAlert("Erro ao renomear categoria: " + e.message); } 
 }
 
 function openAdvancedEditModal(index) {
@@ -1309,12 +1369,12 @@ function openAdvancedEditModal(index) {
 async function saveAdvancedEditChanges(e) {
     if(e) e.preventDefault();
     if (activeEditingIndex === null || !database[activeEditingIndex]) {
-        return alert("Não foi possível identificar a mídia em edição. Reabra a edição e tente novamente.");
+        return uiAlert("Não foi possível identificar a mídia em edição. Reabra a edição e tente novamente.");
     }
     const t = document.getElementById('edit-field-title').value.trim(); const l = document.getElementById('edit-field-link').value.trim();
     const c = document.getElementById('edit-field-capa').value.trim(); const cat = document.getElementById('edit-field-category').value.trim();
     const sub = document.getElementById('edit-field-subcategory').value.trim();
-    if(!t || !l || !cat) return alert("Preencha os campos!");
+    if(!t || !l || !cat) return uiAlert("Preencha os campos!");
 
     const btnSalvar = document.getElementById('btn-submit-edit-media');
     const textoOriginal = btnSalvar ? btnSalvar.innerHTML : "";
@@ -1330,11 +1390,11 @@ async function saveAdvancedEditChanges(e) {
         activeEditingIndex = null;
         await recarregarDadosDoBanco();
         renderCrudManager();
-        alert("Alteração salva com sucesso!");
+        uiAlert("Alteração salva com sucesso!");
     } catch (err) {
         // Desfaz a alteração local se a gravação remota falhar
         database[activeEditingIndex] = itemOriginal;
-        alert("Erro ao salvar: " + err.message);
+        uiAlert("Erro ao salvar: " + err.message);
     } finally {
         if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.innerHTML = textoOriginal; }
     }
@@ -1343,7 +1403,7 @@ async function saveAdvancedEditChanges(e) {
 async function saveMediaToDatabase(e) {
     if(e) e.preventDefault(); const url = document.getElementById('manual-media-url').value.trim(); 
     const categoria = document.getElementById('media-category').value.trim(); const subcategoria = document.getElementById('media-subcategory').value.trim();
-    if(!url || !categoria) return alert("Preencha os campos."); const pId = extractPlaylistId(url); const btnSave = document.getElementById('btn-save-media');
+    if(!url || !categoria) return uiAlert("Preencha os campos."); const pId = extractPlaylistId(url); const btnSave = document.getElementById('btn-save-media');
 
     try {
         if(pId) {
@@ -1358,24 +1418,24 @@ async function saveMediaToDatabase(e) {
                 database.push({ título, link: linkVideo, capa, categoria, subcategoria });
             }
             await empurrarBancoIntegralParaServidor();
-            alert(`Sucesso! Foram importados ${data.items.length} vídeos.`);
+            uiAlert(`Sucesso! Foram importados ${data.items.length} vídeos.`);
         } else {
             const título = document.getElementById('prev-title').value.trim() || "Nova Mídia"; 
             const capa = document.getElementById('prev-thumb').src;
             database.push({ título, link: url, capa, categoria, subcategoria });
             await empurrarBancoIntegralParaServidor();
-            alert("Vídeo salvo!");
+            uiAlert("Vídeo salvo!");
         }
         document.getElementById('manual-media-url').value = ""; 
         document.getElementById('admin-modal')?.classList.add('hidden');
         await recarregarDadosDoBanco();
-    } catch (err) { alert("Erro: " + err.message); } finally { btnSave.innerText = "Salvar no meu Firebase"; btnSave.disabled = false; }
+    } catch (err) { uiAlert("Erro: " + err.message); } finally { btnSave.innerText = "Salvar no meu Firebase"; btnSave.disabled = false; }
 }
 
 async function processarInjecaoDeDadosAcumulativa(novosItens, novosCanais = []) {
     novosItens = Array.isArray(novosItens) ? novosItens.filter(n => n && n.link) : [];
     novosCanais = Array.isArray(novosCanais) ? novosCanais.filter(c => c && c.channelId && c.categoria) : [];
-    if (novosItens.length === 0 && novosCanais.length === 0) return alert("Nenhum dado válido para importar.");
+    if (novosItens.length === 0 && novosCanais.length === 0) return uiAlert("Nenhum dado válido para importar.");
     try {
         if (novosItens.length > 0) {
             const res = await dbFetch(CONFIG.FIREBASE_URL); const data = await res.json(); let bancoAtual = [];
@@ -1406,8 +1466,8 @@ async function processarInjecaoDeDadosAcumulativa(novosItens, novosCanais = []) 
         if (novosCanais.length > 0) await carregarCanaisDinamicos();
         await recarregarDadosDoBanco();
         renderCrudManager();
-        alert(`Importação concluída! Total de mídias: ${database.length}` + (novosCanais.length ? ` | Canais vinculados importados: ${canaisGravados}/${novosCanais.length}` : ""));
-    } catch(e) { alert("Falha na mesclagem de dados. " + (e && e.message ? e.message : "")); }
+        uiAlert(`Importação concluída! Total de mídias: ${database.length}` + (novosCanais.length ? ` | Canais vinculados importados: ${canaisGravados}/${novosCanais.length}` : ""));
+    } catch(e) { uiAlert("Falha na mesclagem de dados. " + (e && e.message ? e.message : "")); }
 }
 
 /* ---------- BACKUP: mídias + canais vinculados ---------- */
@@ -1465,12 +1525,12 @@ async function empurrarBancoIntegralParaServidor() {
 async function deletarMidiaUnica(indexNoBanco) {
     const backup = database.slice();
     try { database.splice(indexNoBanco, 1); await empurrarBancoIntegralParaServidor(); await recarregarDadosDoBanco(); renderCrudManager(); }
-    catch(e){ database = backup; alert("Erro ao excluir mídia: " + e.message); }
+    catch(e){ database = backup; uiAlert("Erro ao excluir mídia: " + e.message); }
 }
 async function deletarSubcategoria(cat, sub) {
     const backup = database.slice();
     try { database = database.filter(item => !(item.categoria === cat && item.subcategoria === sub)); await empurrarBancoIntegralParaServidor(); await recarregarDadosDoBanco(); renderCrudManager(); }
-    catch(e){ database = backup; alert("Erro ao excluir subcategoria: " + e.message); }
+    catch(e){ database = backup; uiAlert("Erro ao excluir subcategoria: " + e.message); }
 }
 async function deletarCategoriaCompleta(cat) { 
     try { 
@@ -1484,7 +1544,7 @@ async function deletarCategoriaCompleta(cat) {
         selectedSubcategory = ''; 
         await recarregarDadosDoBanco(); 
         renderCrudManager(); 
-    } catch(e){ console.error("Erro ao deletar categoria completa:", e); alert("Erro ao excluir categoria: " + e.message); } 
+    } catch(e){ console.error("Erro ao deletar categoria completa:", e); uiAlert("Erro ao excluir categoria: " + e.message); } 
 }
 
 async function renomearSubcategoriaCompleta(cat, antigaSub, novaSub) {
@@ -1493,7 +1553,7 @@ async function renomearSubcategoriaCompleta(cat, antigaSub, novaSub) {
         await empurrarBancoIntegralParaServidor();
         await recarregarDadosDoBanco();
         renderCrudManager();
-    } catch(e){ alert("Erro ao renomear subcategoria: " + e.message); }
+    } catch(e){ uiAlert("Erro ao renomear subcategoria: " + e.message); }
 }
 // Alias mantido para compatibilidade com chamadas antigas
 const renameSubcategoryComplete = renomearSubcategoriaCompleta;
@@ -1621,15 +1681,15 @@ async function renderizarListaUsuariosPedidosExclusao() {
 }
 
 async function processarExclusaoDefinitivaPeloMaster(uidUsuarioAlvo) {
-    if (!confirm("Atenção Admin: Deseja apagar permanentemente todas as mídias e preferências deste usuário do banco? (Lembre-se de deletar a credencial dele no painel Firebase Auth)")) return;
+    if (!await uiConfirm("Atenção Admin: Deseja apagar permanentemente todas as mídias e preferências deste usuário do banco? (Lembre-se de deletar a credencial dele no painel Firebase Auth)")) return;
     
     try {
         const urlBaseBanco = firebaseConfig.databaseURL.replace(/\/$/, "");
         await dbFetch(`${urlBaseBanco}/usuarios/${uidUsuarioAlvo}.json`, { method: "DELETE" });
-        alert("Dados do Realtime Database removidos com sucesso!");
+        uiAlert("Dados do Realtime Database removidos com sucesso!");
         renderizarListaUsuariosPedidosExclusao();
     } catch(e) {
-        alert("Erro técnico ao limpar nó do usuário.");
+        uiAlert("Erro técnico ao limpar nó do usuário.");
     }
 }
 
@@ -1654,7 +1714,7 @@ function setupEventListeners() {
             firebase.auth().signInWithPopup(googleProvider)
                 .then((resultado) => { guardarTokenGoogle(resultado); })
                 .catch((error) => {
-                    alert("Erro ao logar com o Google: " + error.message);
+                    uiAlert("Erro ao logar com o Google: " + error.message);
                     btnGoogle.innerHTML = '<i class="fab fa-google"></i> Entrar com o Google';
                     btnGoogle.disabled = false;
                 });
@@ -1717,7 +1777,7 @@ function setupEventListeners() {
             }
 
             if(!canalSelecionadoProvisorio || !catDestino) {
-                return alert("Por favor, selecione um canal e defina/selecione uma categoria válida.");
+                return uiAlert("Por favor, selecione um canal e defina/selecione uma categoria válida.");
             }
 
             try {
@@ -1734,7 +1794,7 @@ function setupEventListeners() {
                 const respCanal = await dbFetch(urlCanalIndividual, { method: "PUT", body: JSON.stringify(payload), headers: { 'Content-Type': 'application/json' } });
                 if (!respCanal.ok) throw new Error(`Falha ao gravar o canal (HTTP ${respCanal.status}).`);
                 
-                alert(`Canal vinculado com sucesso na categoria "${catDestino}"!`);
+                uiAlert(`Canal vinculado com sucesso na categoria "${catDestino}"!`);
                 
                 document.getElementById("channel-preview").style.display = "none"; 
                 document.getElementById('search-channel-input').value = "";
@@ -1746,25 +1806,25 @@ function setupEventListeners() {
                 canalSelecionadoProvisorio = null; 
                 initApp();
             } catch(err) { 
-                alert("Erro ao salvar canal: " + err.message); 
+                uiAlert("Erro ao salvar canal: " + err.message); 
             }
         }
 
         if (e.target.closest('#btn-request-delete-account')) {
             e.preventDefault();
-            if (!confirm("Tem certeza absoluta de que deseja solicitar a exclusão da sua conta? Seu acervo e preferências serão agendados para eliminação pelo administrador.")) return;
+            if (!await uiConfirm("Tem certeza absoluta de que deseja solicitar a exclusão da sua conta? Seu acervo e preferências serão agendados para eliminação pelo administrador.")) return;
             
             try {
                 await salvarPreferenciaNoFirebase({ solicitou_exclusao: true });
-                alert("Sua solicitação de exclusão foi enviada com sucesso! Você pode fechar o site ou deslogar.");
+                uiAlert("Sua solicitação de exclusão foi enviada com sucesso! Você pode fechar o site ou deslogar.");
                 fecharModalPerfil();
             } catch(err) {
-                alert("Falha ao registrar pedido.");
+                uiAlert("Falha ao registrar pedido.");
             }
         }
         
         if (e.target.closest('#btn-fetch-manual')) {
-            const url = document.getElementById('manual-media-url').value.trim(); if(!url) return alert("Insira uma URL.");
+            const url = document.getElementById('manual-media-url').value.trim(); if(!url) return uiAlert("Insira uma URL.");
             const btn = e.target.closest('#btn-fetch-manual'); btn.innerText = "Buscando..."; const vId = extractYoutubeId(url);
             try {
                 if (vId) {
@@ -1774,10 +1834,10 @@ function setupEventListeners() {
             } catch(err) {} finally { btn.innerText = "Capturar Dados"; }
         }
 
-        if (e.target.closest('#btn-export-all-json')) { if (database.length > 0 || Object.keys(canaisDinamicos || {}).length > 0) downloadJSON(montarPacoteBackup(database, null), "backup_completo_streamhub"); else alert("Banco vazio!"); }
+        if (e.target.closest('#btn-export-all-json')) { if (database.length > 0 || Object.keys(canaisDinamicos || {}).length > 0) downloadJSON(montarPacoteBackup(database, null), "backup_completo_streamhub"); else uiAlert("Banco vazio!"); }
         if (e.target.closest('#btn-submit-json-code')) {
-            const val = document.getElementById('json-input-field')?.value.trim(); if(!val) return alert("Cole o código JSON");
-            try { let p = lerPacoteImportado(JSON.parse(val)); await processarInjecaoDeDadosAcumulativa(p.itens, p.canais); document.getElementById('json-input-field').value = ""; } catch(err) { alert("JSON inválido."); }
+            const val = document.getElementById('json-input-field')?.value.trim(); if(!val) return uiAlert("Cole o código JSON");
+            try { let p = lerPacoteImportado(JSON.parse(val)); await processarInjecaoDeDadosAcumulativa(p.itens, p.canais); document.getElementById('json-input-field').value = ""; } catch(err) { uiAlert("JSON inválido."); }
         }
         
         if (e.target.closest('#btn-reset-theme')) {
@@ -1862,10 +1922,10 @@ function setupEventListeners() {
             }
             
             if (!novoNome || !novoSobrenome) {
-                return alert("Os campos Nome e Sobrenome não podem ficar vazios!");
+                return uiAlert("Os campos Nome e Sobrenome não podem ficar vazios!");
             }
             if (novoWhatsapp && !whatsappEhValido(novoWhatsapp)) {
-                return alert("Informe um WhatsApp válido com DDD, no formato (99) 99999-9999.");
+                return uiAlert("Informe um WhatsApp válido com DDD, no formato (99) 99999-9999.");
             }
             
             const btnSaveProf = document.getElementById('btn-save-profile-changes');
@@ -1889,11 +1949,11 @@ function setupEventListeners() {
                 const elTxt = document.getElementById('user-top-name');
                 if (elTxt) elTxt.innerText = `Olá, ${novoNome}!`;
                 
-                alert("Perfil e preferências salvos com sucesso!");
+                uiAlert("Perfil e preferências salvos com sucesso!");
                 fecharModalPerfil();
                 
             } catch (err) {
-                alert("Erro ao salvar alterações do perfil: " + err.message);
+                uiAlert("Erro ao salvar alterações do perfil: " + err.message);
             } finally {
                 btnSaveProf.innerText = "Salvar Alterações"; btnSaveProf.disabled = false;
             }
@@ -1978,7 +2038,7 @@ function setupEventListeners() {
     document.getElementById('file-import-json')?.addEventListener('change', (e) => {
         const file = e.target.files[0]; if (!file) return; const reader = new FileReader();
         reader.onload = async (evt) => {
-            try { let p = lerPacoteImportado(JSON.parse(evt.target.result)); await processarInjecaoDeDadosAcumulativa(p.itens, p.canais); e.target.value = ""; } catch(err) { alert("Erro de arquivo."); }
+            try { let p = lerPacoteImportado(JSON.parse(evt.target.result)); await processarInjecaoDeDadosAcumulativa(p.itens, p.canais); e.target.value = ""; } catch(err) { uiAlert("Erro de arquivo."); }
         }; reader.readAsText(file);
     });
 
@@ -2022,25 +2082,25 @@ if (waButton) {
             const uf = lerValorCampo('register-uf');
             
             if(!nome || !sobrenome || !email || !senha) {
-                return alert("Por favor, preencha todos os campos do cadastro!");
+                return uiAlert("Por favor, preencha todos os campos do cadastro!");
             }
             if(!whatsapp || !cidade || !uf) {
-                return alert("Informe também o seu WhatsApp, a cidade e a UF.");
+                return uiAlert("Informe também o seu WhatsApp, a cidade e a UF.");
             }
             if(!whatsappEhValido(whatsapp)) {
-                return alert("Informe um WhatsApp válido com DDD, no formato (99) 99999-9999.");
+                return uiAlert("Informe um WhatsApp válido com DDD, no formato (99) 99999-9999.");
             }
             
             // TRAVA DE PROVEDOR REAL: Aplica a validação do front-end
             if (!verificarProvedorValido(email)) {
-                return alert("Cadastro Bloqueado!\nPor razões de segurança e viabilidade de recuperação de senha, use um e-mail válido pertencente aos grandes provedores (Gmail, Hotmail, Outlook, Yahoo, iCloud, UOL, BOL ou IG).");
+                return uiAlert("Cadastro Bloqueado!\nPor razões de segurança e viabilidade de recuperação de senha, use um e-mail válido pertencente aos grandes provedores (Gmail, Hotmail, Outlook, Yahoo, iCloud, UOL, BOL ou IG).");
             }
 
             if(senha.length < 6) {
-                return alert("A senha precisa ter no mínimo 6 caracteres!");
+                return uiAlert("A senha precisa ter no mínimo 6 caracteres!");
             }
             if(senha !== senhaConfirm) {
-                return alert("As senhas digitadas não batem! Verifique a confirmação.");
+                return uiAlert("As senhas digitadas não batem! Verifique a confirmação.");
             }
             
             const btnReg = document.getElementById('btn-register-submit');
@@ -2069,13 +2129,13 @@ if (waButton) {
                     headers: { 'Content-Type': 'application/json' }
                 });
                 
-                alert(`Conta criada com absoluto sucesso, ${nome}! Seja bem-vindo.`);
+                uiAlert(`Conta criada com absoluto sucesso, ${nome}! Seja bem-vindo.`);
                 
                 document.getElementById('form-cadastro-fluxo').reset();
                 alternarAbasLogin('login');
                 
             } catch(error) {
-                alert("Erro ao realizar cadastro: " + error.message);
+                uiAlert("Erro ao realizar cadastro: " + error.message);
             } finally {
                 btnReg.innerText = "Criar Minha Conta"; btnReg.disabled = false;
             }
@@ -2482,7 +2542,7 @@ async function pedirLoginGoogleParaComentar() {
         montarCaixaDeComentario();
         return true;
     } catch (e) {
-        alert("Não foi possível autorizar sua conta Google para comentar: " + (e.message || e));
+        uiAlert("Não foi possível autorizar sua conta Google para comentar: " + (e.message || e));
         return false;
     }
 }
@@ -2538,17 +2598,17 @@ async function enviarComentarioNoVideo() {
             if (res.status === 401 || res.status === 403) {
                 googleAccessToken = null;
                 try { sessionStorage.removeItem("gToken"); } catch (e) {}
-                alert("Sua autorização do Google expirou. Entre novamente com o Google para comentar.");
+                uiAlert("Sua autorização do Google expirou. Entre novamente com o Google para comentar.");
                 montarCaixaDeComentario();
             } else {
-                alert("Não foi possível publicar o comentário: " + (dados.error.message || "erro desconhecido"));
+                uiAlert("Não foi possível publicar o comentário: " + (dados.error.message || "erro desconhecido"));
             }
             return;
         }
         campo.value = "";
         await carregarComentariosDoVideo(videoIdEmExibicao);
     } catch (e) {
-        alert("Erro de rede ao publicar o comentário.");
+        uiAlert("Erro de rede ao publicar o comentário.");
     } finally {
         if (botao) { botao.disabled = false; botao.innerHTML = '<i class="fas fa-paper-plane"></i> Comentar'; }
     }
@@ -2730,11 +2790,11 @@ function atualizarPreviewImagemMaster(id) {
     if (v) prev.src = v; else prev.removeAttribute("src");
 }
 
-document.addEventListener("change", (e) => {
+document.addEventListener("change", async (e) => {
     const f = e.target.closest && e.target.closest(".master-img-file");
     if (!f || !f.files || !f.files[0]) return;
     const arquivo = f.files[0];
-    if (arquivo.size > 1024 * 1024 && !confirm("A imagem tem mais de 1 MB e deixará o site mais lento. Continuar?")) { f.value = ""; return; }
+    if (arquivo.size > 1024 * 1024 && !await uiConfirm("A imagem tem mais de 1 MB e deixará o site mais lento. Continuar?")) { f.value = ""; return; }
     const leitor = new FileReader();
     leitor.onload = () => {
         const alvo = document.getElementById(f.getAttribute("data-target"));
@@ -2774,7 +2834,7 @@ function alternarBotoesAdminMaster() {
 }
 
 function abrirPainelMaster() {
-    if (!ehAdminMaster()) return alert("Acesso restrito ao administrador.");
+    if (!ehAdminMaster()) return uiAlert("Acesso restrito ao administrador.");
     document.getElementById("master-modal")?.classList.remove("hidden");
     inicializarCamposContato();
     trocarAbaMaster("m-users-tab", "tab-trigger-m-users");
@@ -2865,7 +2925,7 @@ function abrirEdicaoUsuarioMaster(uid) {
 async function salvarUsuarioMaster() {
     if (!uidUsuarioEmEdicaoMaster) return;
     const whatsMaster = lerValorCampo("mu-whatsapp");
-    if (whatsMaster && !whatsappEhValido(whatsMaster)) return alert("WhatsApp inválido. Use o formato (99) 99999-9999.");
+    if (whatsMaster && !whatsappEhValido(whatsMaster)) return uiAlert("WhatsApp inválido. Use o formato (99) 99999-9999.");
     const dados = {
         nome: document.getElementById("mu-name").value.trim(),
         sobrenome: document.getElementById("mu-lastname").value.trim(),
@@ -2881,19 +2941,19 @@ async function salvarUsuarioMaster() {
         await dbFetch(`${urlRaizBanco()}/usuarios/${uidUsuarioEmEdicaoMaster}.json`, {
             method: "PATCH", body: JSON.stringify(dados), headers: { "Content-Type": "application/json" }
         });
-        alert("Usuário atualizado com sucesso!");
+        uiAlert("Usuário atualizado com sucesso!");
         document.getElementById("master-edit-user-modal")?.classList.add("hidden");
         renderizarUsuariosMaster();
-    } catch (e) { alert("Erro ao salvar usuário: " + e.message); }
+    } catch (e) { uiAlert("Erro ao salvar usuário: " + e.message); }
 }
 
 async function excluirUsuarioMaster(uid) {
-    if (!confirm("Apagar TODOS os dados deste usuário no banco? (a credencial no Firebase Auth deve ser removida no console)")) return;
+    if (!await uiConfirm("Apagar TODOS os dados deste usuário no banco? (a credencial no Firebase Auth deve ser removida no console)")) return;
     try {
         await dbFetch(`${urlRaizBanco()}/usuarios/${uid}.json`, { method: "DELETE" });
         document.getElementById("master-edit-user-modal")?.classList.add("hidden");
         renderizarUsuariosMaster();
-    } catch (e) { alert("Erro ao apagar dados."); }
+    } catch (e) { uiAlert("Erro ao apagar dados."); }
 }
 
 // Cria contas sem derrubar a sessão do admin (usa uma instância secundária do Firebase)
@@ -2905,9 +2965,9 @@ async function cadastrarUsuarioPeloMaster() {
     const whatsapp = lerValorCampo("master-new-whatsapp");
     const cidade = lerValorCampo("master-new-cidade");
     const uf = lerValorCampo("master-new-uf");
-    if (!nome || !email || senha.length < 6) return alert("Preencha nome, e-mail e uma senha de no mínimo 6 caracteres.");
-    if (!whatsapp || !cidade || !uf) return alert("Informe também o WhatsApp, a cidade e a UF do novo usuário.");
-    if (!whatsappEhValido(whatsapp)) return alert("WhatsApp inválido. Use o formato (99) 99999-9999.");
+    if (!nome || !email || senha.length < 6) return uiAlert("Preencha nome, e-mail e uma senha de no mínimo 6 caracteres.");
+    if (!whatsapp || !cidade || !uf) return uiAlert("Informe também o WhatsApp, a cidade e a UF do novo usuário.");
+    if (!whatsappEhValido(whatsapp)) return uiAlert("WhatsApp inválido. Use o formato (99) 99999-9999.");
 
     const btn = document.getElementById("btn-master-create-user");
     btn.innerText = "Cadastrando..."; btn.disabled = true;
@@ -2931,12 +2991,12 @@ async function cadastrarUsuarioPeloMaster() {
             })
         });
         await appSecundario.auth().signOut();
-        alert(`Usuário ${nome} cadastrado com sucesso!`);
+        uiAlert(`Usuário ${nome} cadastrado com sucesso!`);
         ["master-new-name", "master-new-lastname", "master-new-email", "master-new-pass", "master-new-whatsapp", "master-new-cidade", "master-new-uf"].forEach(id => { const el = document.getElementById(id); if (el) el.value = ""; });
         trocarAbaMaster("m-users-tab", "tab-trigger-m-users");
         renderizarUsuariosMaster();
     } catch (e) {
-        alert("Erro ao cadastrar usuário: " + e.message);
+        uiAlert("Erro ao cadastrar usuário: " + e.message);
     } finally {
         btn.innerText = "Cadastrar Novo Usuário"; btn.disabled = false;
     }
@@ -2982,8 +3042,8 @@ async function salvarConfigGlobal(parcial) {
         });
         configGlobalSite = { ...configGlobalSite, ...parcial };
         aplicarConfigGlobal();
-        alert("Configurações salvas com sucesso!");
-    } catch (e) { alert("Erro ao salvar configurações globais."); }
+        uiAlert("Configurações salvas com sucesso!");
+    } catch (e) { uiAlert("Erro ao salvar configurações globais."); }
 }
 
 /* ---------------------- EVENTOS DOS NOVOS RECURSOS ---------------------- */
@@ -3001,7 +3061,7 @@ document.addEventListener("DOMContentLoaded", () => {
             fotoPerfilTemporaria = base64;
             document.getElementById("profile-photo-preview").src = base64;
             document.getElementById("profile-photo-url").value = "";
-        } catch (err) { alert(err.message); }
+        } catch (err) { uiAlert(err.message); }
         e.target.value = "";
     });
 
@@ -4740,32 +4800,32 @@ function favEsc(s) {
 function favIdPasta() { return 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 function favNomePasta(id) { const p = favoritos.pastas.find(x => x.id === id); return p ? p.nome : ''; }
 
-function favCriarPasta(nomeSugerido) {
-    const nome = (prompt('Nome da nova pasta:', nomeSugerido || '') || '').trim();
+async function favCriarPasta(nomeSugerido) {
+    const nome = (await uiPrompt('Nome da nova pasta:', nomeSugerido || '') || '').trim();
     if (!nome) return null;
-    if (favoritos.pastas.some(p => p.nome.toLowerCase() === nome.toLowerCase())) { alert('Já existe uma pasta com esse nome.'); return null; }
+    if (favoritos.pastas.some(p => p.nome.toLowerCase() === nome.toLowerCase())) { uiAlert('Já existe uma pasta com esse nome.'); return null; }
     const cores = ['#e74c3c', '#3498db', '#2ecc71', '#f1c40f', '#9b59b6', '#e67e22', '#1abc9c'];
     const pasta = { id: favIdPasta(), nome, cor: cores[favoritos.pastas.length % cores.length], criadaEm: Date.now() };
     favoritos.pastas.push(pasta);
     salvarFavoritos();
     return pasta;
 }
-function favRenomearPasta(id) {
+async function favRenomearPasta(id) {
     const p = favoritos.pastas.find(x => x.id === id); if (!p) return;
-    const nome = (prompt('Novo nome da pasta:', p.nome) || '').trim();
+    const nome = (await uiPrompt('Novo nome da pasta:', p.nome) || '').trim();
     if (!nome) return;
     p.nome = nome; salvarFavoritos(); renderizarFavoritos();
 }
-function favExcluirPasta(id) {
+async function favExcluirPasta(id) {
     const p = favoritos.pastas.find(x => x.id === id); if (!p) return;
-    if (!confirm(`Excluir a pasta "${p.nome}"? As mídias continuam nos favoritos, apenas saem da pasta.`)) return;
+    if (!await uiConfirm(`Excluir a pasta "${p.nome}"? As mídias continuam nos favoritos, apenas saem da pasta.`)) return;
     favoritos.pastas = favoritos.pastas.filter(x => x.id !== id);
     favoritos.midias.forEach(m => { if (m.pasta === id) m.pasta = ''; });
     if (favUI.pasta === id) favUI.pasta = '__todas';
     salvarFavoritos(); renderizarFavoritos();
 }
-function favMoverParaPasta(midias, pastaId) {
-    if (pastaId === '__nova') { const p = favCriarPasta(); if (!p) { renderizarFavoritos(); return; } pastaId = p.id; }
+async function favMoverParaPasta(midias, pastaId) {
+    if (pastaId === '__nova') { const p = await favCriarPasta(); if (!p) { renderizarFavoritos(); return; } pastaId = p.id; }
     midias.forEach(m => { m.pasta = pastaId || ''; });
     salvarFavoritos(); renderizarFavoritos();
 }
@@ -4817,15 +4877,15 @@ function favImportar() {
                 (d.categorias || []).forEach(c => { if (c && !favoritos.categorias.some(x => x.categoria === c.categoria)) favoritos.categorias.push(c); });
                 (d.subcategorias || []).forEach(c => { if (c && !favoritos.subcategorias.some(x => x.categoria === c.categoria && x.subcategoria === c.subcategoria)) favoritos.subcategorias.push(c); });
                 salvarFavoritos(); renderizarFavoritos(); try { renderMosaic(); } catch (e) {}
-                alert('Favoritos importados com sucesso!');
-            } catch (e) { alert('Arquivo inválido.'); }
+                uiAlert('Favoritos importados com sucesso!');
+            } catch (e) { uiAlert('Arquivo inválido.'); }
         };
         r.readAsText(f);
     };
     inp.click();
 }
-function favLimparTudo() {
-    if (!confirm('Remover TODOS os favoritos e pastas? Essa ação não pode ser desfeita.')) return;
+async function favLimparTudo() {
+    if (!await uiConfirm('Remover TODOS os favoritos e pastas? Essa ação não pode ser desfeita.')) return;
     favoritos = { midias: [], categorias: [], subcategorias: [], pastas: [] };
     salvarFavoritos(); atualizarBotaoFavoritoDoPlayer(); try { renderMosaic(); } catch (e) {} renderizarFavoritos();
 }
@@ -4888,11 +4948,11 @@ function renderizarFavoritos() {
     corpo.querySelector('#fav-filtro-nota').addEventListener('change', (e) => { favUI.filtroNota = parseInt(e.target.value, 10) || 0; renderizarConteudoFavoritos(); });
     const menuMais = corpo.querySelector('#fav-mais-menu');
     corpo.querySelector('#fav-btn-mais').addEventListener('click', (e) => { e.stopPropagation(); menuMais.classList.toggle('hidden'); });
-    menuMais.addEventListener('click', (e) => {
+    menuMais.addEventListener('click', async (e) => {
         const b = e.target.closest('[data-mais]'); if (!b) return;
         menuMais.classList.add('hidden');
         const a = b.dataset.mais;
-        if (a === 'nova-pasta') { if (favCriarPasta()) { favUI.aba = 'pastas'; renderizarFavoritos(); } }
+        if (a === 'nova-pasta') { if (await favCriarPasta()) { favUI.aba = 'pastas'; renderizarFavoritos(); } }
         else if (a === 'exportar') favExportar();
         else if (a === 'importar') favImportar();
         else if (a === 'limpar') favLimparTudo();
@@ -4924,9 +4984,9 @@ function renderFavMidias(alvo) {
     barraPastas.className = 'fav-chips';
     barraPastas.innerHTML = chips.map(c => `<button type="button" class="fav-chip${favUI.pasta === c[0] ? ' ativo' : ''}" data-pasta="${favEsc(c[0])}">${c[3] ? `<i class="fas fa-folder" style="color:${favEsc(c[3])}"></i> ` : ''}${favEsc(c[1])} <span>${c[2]}</span></button>`).join('')
         + `<button type="button" class="fav-chip fav-chip-nova" data-pasta="__nova"><i class="fas fa-plus"></i> Pasta</button>`;
-    barraPastas.addEventListener('click', (e) => {
+    barraPastas.addEventListener('click', async (e) => {
         const b = e.target.closest('.fav-chip'); if (!b) return;
-        if (b.dataset.pasta === '__nova') { const p = favCriarPasta(); if (p) favUI.pasta = p.id; renderizarFavoritos(); return; }
+        if (b.dataset.pasta === '__nova') { const p = await favCriarPasta(); if (p) favUI.pasta = p.id; renderizarFavoritos(); return; }
         favUI.pasta = b.dataset.pasta; favUI.selecionados = new Set(); renderizarConteudoFavoritos();
     });
     alvo.appendChild(barraPastas);
@@ -4948,14 +5008,14 @@ function renderFavMidias(alvo) {
             <button type="button" class="fav-btn perigo" data-acao="remover-sel"><i class="fas fa-heart-crack"></i></button>` : ''}`;
     alvo.appendChild(acoes);
     const selecionadas = () => favoritos.midias.filter(m => favUI.selecionados.has(m.link));
-    acoes.addEventListener('click', (e) => {
+    acoes.addEventListener('click', async (e) => {
         const b = e.target.closest('button[data-acao]'); if (!b) return;
         const a = b.dataset.acao;
         if (a === 'tocar') favTocarLista(lista, false);
         else if (a === 'aleatorio') favTocarLista(lista, true);
         else if (a === 'tocar-sel') favTocarLista(lista.filter(m => favUI.selecionados.has(m.link)), false);
         else if (a === 'remover-sel') {
-            if (!confirm(`Remover ${favUI.selecionados.size} mídia(s) dos favoritos?`)) return;
+            if (!await uiConfirm(`Remover ${favUI.selecionados.size} mídia(s) dos favoritos?`)) return;
             favoritos.midias = favoritos.midias.filter(m => !favUI.selecionados.has(m.link));
             favUI.selecionados = new Set();
             salvarFavoritos(); atualizarBotaoFavoritoDoPlayer(); try { renderMosaic(); } catch (er) {} renderizarFavoritos();
@@ -5016,7 +5076,7 @@ function renderFavPastas(alvo) {
     const topo = document.createElement('div');
     topo.className = 'fav-acoes';
     topo.innerHTML = `<button type="button" class="fav-btn primario"><i class="fas fa-folder-plus"></i> Nova pasta</button>`;
-    topo.querySelector('button').addEventListener('click', () => { if (favCriarPasta()) renderizarFavoritos(); });
+    topo.querySelector('button').addEventListener('click', async () => { if (await favCriarPasta()) renderizarFavoritos(); });
     alvo.appendChild(topo);
 
     const q = favUI.busca.trim().toLowerCase();
@@ -5586,7 +5646,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
 
     // ---------- bloqueio de recursos que exigem conta ----------
 
-    window.exigirLoginGuest = function (acao, dados) {
+    window.exigirLoginGuest = async function (acao, dados) {
         acaoPendente = dados ? Object.assign({ rotulo: acao || "" }, dados) : (acao ? { rotulo: acao } : null);
         salvarPersistencia();
         const texto = acao ? `Para ${acao} é necessário entrar na sua conta.` : "Esta função é exclusiva para usuários com conta.";
@@ -5595,7 +5655,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
             box.querySelector(".guest-lr-text").innerText = texto;
             box.classList.remove("hidden");
         } else {
-            if (confirm(texto + "\n\nDeseja entrar ou criar sua conta agora?")) sairDoModoGuest("login");
+            if (await uiConfirm(texto + "\n\nDeseja entrar ou criar sua conta agora?")) sairDoModoGuest("login");
         }
     };
 
@@ -5923,17 +5983,17 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
                 if (res.status === 401 || res.status === 403) {
                     googleAccessToken = null;
                     try { sessionStorage.removeItem("gToken"); } catch (e) { }
-                    alert("Sua autorização do Google expirou. Autorize novamente para comentar.");
+                    uiAlert("Sua autorização do Google expirou. Autorize novamente para comentar.");
                     montarComposerGuest();
                 } else {
-                    alert("Não foi possível publicar o comentário: " + (dados.error.message || "erro desconhecido"));
+                    uiAlert("Não foi possível publicar o comentário: " + (dados.error.message || "erro desconhecido"));
                 }
                 return;
             }
             campo.value = "";
             carregarComentariosGuest(videoId);
         } catch (e) {
-            alert("Erro de rede ao publicar o comentário.");
+            uiAlert("Erro de rede ao publicar o comentário.");
         } finally {
             if (botao) { botao.disabled = false; botao.innerHTML = '<i class="fas fa-paper-plane"></i> Comentar'; }
         }
@@ -6762,7 +6822,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
                 const url = `https://www.youtube.com/watch?v=${videoId}`;
                 try {
                     if (navigator.share) await navigator.share({ title: decodificarHtml(s.title), url });
-                    else { await navigator.clipboard.writeText(url); alert("Link copiado!"); }
+                    else { await navigator.clipboard.writeText(url); uiAlert("Link copiado!"); }
                 } catch (e) { }
             };
 
@@ -7939,7 +7999,7 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         if (!C.uid) {
             const u = firebase.auth().currentUser;
             if (u) { iniciar(u).then(() => C.uid && abrir()); return; }
-            alert("Entre na sua conta para acessar a Comunidade.");
+            uiAlert("Entre na sua conta para acessar a Comunidade.");
             return;
         } $("comunidade-screen").classList.remove("hidden"); document.body.classList.add("comunidade-aberta"); $("dropdown-menu-mobile")?.classList.add("hidden"); trocarAba(C.aba); }
     function fechar() { $("comunidade-screen")?.classList.add("hidden"); document.body.classList.remove("comunidade-aberta"); fecharChat(); }
@@ -8064,23 +8124,23 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
     function assistirPost(id) {
         const itens = itensDoPost(id); if (!itens.length) return;
         try { currentPlaylist = itens; fechar(); playTrack(0); }
-        catch (err) { alert("Não foi possível abrir o player."); console.error(err); }
+        catch (err) { uiAlert("Não foi possível abrir o player."); console.error(err); }
     }
     async function adicionarPost(id, btn) {
         const itens = itensDoPost(id); if (!itens.length) return;
-        if (typeof database === "undefined" || typeof empurrarBancoIntegralParaServidor !== "function") { alert("Não foi possível acessar suas mídias."); return; }
+        if (typeof database === "undefined" || typeof empurrarBancoIntegralParaServidor !== "function") { uiAlert("Não foi possível acessar suas mídias."); return; }
         const existentes = new Set(database.map((i) => i.categoria + "||" + i.subcategoria + "||" + i.link));
         const novos = itens.filter((i) => i.link && !existentes.has(i.categoria + "||" + i.subcategoria + "||" + i.link));
-        if (!novos.length) { alert("Este conteúdo já está nas suas mídias."); return; }
-        if (!confirm(`Adicionar ${novos.length} mídia(s) às suas mídias?`)) return;
+        if (!novos.length) { uiAlert("Este conteúdo já está nas suas mídias."); return; }
+        if (!await uiConfirm(`Adicionar ${novos.length} mídia(s) às suas mídias?`)) return;
         if (btn) btn.disabled = true;
         const backup = database.slice();
         try {
             novos.forEach((i) => database.push({ ...i, categoria: i.categoria || "Comunidade", subcategoria: i.subcategoria || "Geral" }));
             await empurrarBancoIntegralParaServidor();
             if (typeof recarregarDadosDoBanco === "function") await recarregarDadosDoBanco();
-            alert(`${novos.length} mídia(s) adicionada(s) às suas mídias!`);
-        } catch (err) { database = backup; alert("Erro ao adicionar às suas mídias."); console.error(err); }
+            uiAlert(`${novos.length} mídia(s) adicionada(s) às suas mídias!`);
+        } catch (err) { database = backup; uiAlert("Erro ao adicionar às suas mídias."); console.error(err); }
         if (btn) btn.disabled = false;
     }
 
@@ -8165,7 +8225,7 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         try {
             await ref("posts").push({ uid: C.uid, texto: texto.slice(0, 2000), midia: midia || null, criado: firebase.database.ServerValue.TIMESTAMP });
             $("com-form-post").reset(); C.midia = null; $("com-preview").innerHTML = ""; $("com-post-link").classList.add("hidden"); fecharPaineis();
-        } catch (err) { alert("Não foi possível publicar. Verifique as regras da Comunidade no Firebase."); console.error(err); }
+        } catch (err) { uiAlert("Não foi possível publicar. Verifique as regras da Comunidade no Firebase."); console.error(err); }
         btn.disabled = false;
     }
 
@@ -8202,11 +8262,11 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
     function cancelar(u) { const up = {}; up[`pedidos/${u}/${C.uid}`] = null; up[`enviados/${C.uid}/${u}`] = null; return raiz().update(up); }
     function aceitar(u) { const up = {}; up[`amigos/${C.uid}/${u}`] = true; up[`amigos/${u}/${C.uid}`] = true; up[`pedidos/${C.uid}/${u}`] = null; up[`enviados/${u}/${C.uid}`] = null; return raiz().update(up); }
     function recusar(u) { const up = {}; up[`pedidos/${C.uid}/${u}`] = null; up[`enviados/${u}/${C.uid}`] = null; return raiz().update(up); }
-    function desfazer(u) { if (!confirm("Desfazer amizade com " + nomeDe(u) + "? O chat será desativado.")) return; const up = {}; up[`amigos/${C.uid}/${u}`] = null; up[`amigos/${u}/${C.uid}`] = null; return raiz().update(up); }
+    async function desfazer(u) { if (!await uiConfirm("Desfazer amizade com " + nomeDe(u) + "? O chat será desativado.")) return; const up = {}; up[`amigos/${C.uid}/${u}`] = null; up[`amigos/${u}/${C.uid}`] = null; return raiz().update(up); }
 
     /* ---------- CHAT AO VIVO (somente amigos) ---------- */
     function abrirChat(u) {
-        if (!C.amigos[u]) { alert("O chat só fica disponível depois que a amizade for aceita."); return; }
+        if (!C.amigos[u]) { uiAlert("O chat só fica disponível depois que a amizade for aceita."); return; }
         fecharChat();
         C.chatCom = u;
         const p = C.perfis[u] || {};
@@ -8227,9 +8287,9 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         e.preventDefault();
         const inp = $("com-chat-input"), texto = inp.value.trim();
         if (!texto || !C.chatCom) return;
-        if (!C.amigos[C.chatCom]) { alert("Vocês não são mais amigos."); fecharChat(); return; }
+        if (!C.amigos[C.chatCom]) { uiAlert("Vocês não são mais amigos."); fecharChat(); return; }
         inp.value = "";
-        ref("chats/" + idChat(C.uid, C.chatCom) + "/mensagens").push({ de: C.uid, para: C.chatCom, texto: texto.slice(0, 1000), criado: firebase.database.ServerValue.TIMESTAMP }).catch((err) => { alert("Mensagem não enviada."); console.error(err); });
+        ref("chats/" + idChat(C.uid, C.chatCom) + "/mensagens").push({ de: C.uid, para: C.chatCom, texto: texto.slice(0, 1000), criado: firebase.database.ServerValue.TIMESTAMP }).catch((err) => { uiAlert("Mensagem não enviada."); console.error(err); });
     }
 
     /* ---------- EVENTOS ---------- */
@@ -8255,9 +8315,9 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
         $("com-minhas-resultados").addEventListener("click", (e) => { const b = e.target.closest("[data-minhapick]"); if (b) escolherMinha(+b.dataset.minhapick); });
         $("com-arquivo").addEventListener("change", async (e) => {
             const f = e.target.files[0]; if (!f) return;
-            if (!f.type.startsWith("image/")) { alert("Envie uma imagem. Para vídeos, cole o link (YouTube, MP4...)."); return; }
+            if (!f.type.startsWith("image/")) { uiAlert("Envie uma imagem. Para vídeos, cole o link (YouTube, MP4...)."); return; }
             try { C.midia = { tipo: "imagem", url: await comprimirImagem(f) }; $("com-preview").innerHTML = `<img src="${C.midia.url}" alt=""><button type="button" class="btn-icon" id="com-tirar-midia"><i class="fas fa-times"></i></button>`; }
-            catch (err) { alert("Não foi possível ler a imagem."); }
+            catch (err) { uiAlert("Não foi possível ler a imagem."); }
             e.target.value = "";
         });
         $("com-preview").addEventListener("click", (e) => { if (e.target.closest("#com-tirar-midia")) { C.midia = null; $("com-preview").innerHTML = ""; } });
@@ -8269,7 +8329,7 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
             e.preventDefault(); const inp = f.querySelector("input"), t = inp.value.trim(); if (!t) return;
             ref("posts/" + f.dataset.post + "/comentarios").push({ uid: C.uid, texto: t.slice(0, 500), criado: firebase.database.ServerValue.TIMESTAMP }); inp.value = "";
         });
-        $("comunidade-screen").addEventListener("click", (e) => {
+        $("comunidade-screen").addEventListener("click", async (e) => {
             const b = e.target.closest("button"); if (!b) return; const d = b.dataset;
             if (d.assistir) assistirPost(d.assistir);
             else if (d.addmidias) adicionarPost(d.addmidias, b);
@@ -8280,7 +8340,7 @@ async function sondarEReproduzir(track, link, video, iframe, index) {
             else if (d.desfazer) desfazer(d.desfazer);
             else if (d.chat) abrirChat(d.chat);
             else if (d.curtir) { const r = ref(`posts/${d.curtir}/curtidas/${C.uid}`); (C.posts[d.curtir].curtidas || {})[C.uid] ? r.remove() : r.set(true); }
-            else if (d.del && confirm("Apagar esta publicação?")) ref("posts/" + d.del).remove();
+            else if (d.del && await uiConfirm("Apagar esta publicação?")) ref("posts/" + d.del).remove();
         });
         firebase.auth().onAuthStateChanged(iniciar);
     }
