@@ -7087,9 +7087,23 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         history.pushState({ streamhubGuard: true }, "", location.href);
     } catch (e) {}
 
-    window.addEventListener("popstate", function () {
-        try { desfazerUltimaAcao(); } catch (e) { console.warn("Voltar:", e); }
-        try { history.pushState({ streamhubGuard: true }, "", location.href); } catch (e) {}
+    window.addEventListener("popstate", function (ev) {
+        // Endereço novo digitado/colado na barra: deixa as rotas tratarem
+        // e recoloca a guarda por cima dele.
+        if (!ev.state) {
+            setTimeout(() => { try { history.pushState({ streamhubGuard: true }, "", location.href); } catch (e) {} }, 0);
+            return;
+        }
+        if (!ev.state.streamhubBase) return;
+        let desfez = false;
+        try { desfez = desfazerUltimaAcao(); } catch (e) { console.warn("Voltar:", e); }
+        if (desfez) {
+            // A tela anterior já regravou o endereço; recoloca a guarda com ele
+            try { history.pushState({ streamhubGuard: true }, "", location.href); } catch (e) {}
+        } else {
+            // Nada mais a desfazer: volta normalmente para a página anterior
+            try { history.back(); } catch (e) {}
+        }
     });
 })();
 
