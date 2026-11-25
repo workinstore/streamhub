@@ -5545,10 +5545,56 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         nav.pos = nav.pilha.length - 1;
         atualizarSetas();
         salvarPersistencia();
+        gravarUrlGuest(estado);
     }
+
+    // ---------- URL própria para cada ação (#/yt/...) ----------
+    const encY = (v) => encodeURIComponent(String(v == null ? "" : v));
+    const decY = (v) => { try { return decodeURIComponent(v || ""); } catch (e) { return v || ""; } };
+    function hashDoEstado(st) {
+        if (!st) return "#/yt";
+        if (st.tipo === "home") return st.categoriaId ? "#/yt/em-alta/" + encY(st.categoriaId) : "#/yt";
+        if (st.tipo === "search") return "#/yt/busca/" + encY(st.filtro || "video") + "/" + encY(st.query || "");
+        if (st.tipo === "channel") return "#/yt/canal/" + encY(st.id);
+        if (st.tipo === "playlist") return "#/yt/playlist/" + encY(st.id);
+        if (st.tipo === "watch") return "#/yt/video/" + encY(st.id);
+        return "#/yt";
+    }
+    function estadoDoHash(hash) {
+        const h = String(hash || "");
+        if (!/^#\/yt(\/|$)/.test(h)) return null;
+        const p = h.replace(/^#\/yt\/?/, "").split("/");
+        if (!p[0]) return { tipo: "home", categoriaId: "" };
+        if (p[0] === "em-alta") return { tipo: "home", categoriaId: decY(p[1]) };
+        if (p[0] === "busca" && p.length >= 3) return { tipo: "search", filtro: decY(p[1]) || "video", query: decY(p.slice(2).join("/")) };
+        if (p[0] === "canal" && p[1]) return { tipo: "channel", id: decY(p[1]) };
+        if (p[0] === "playlist" && p[1]) return { tipo: "playlist", id: decY(p[1]) };
+        if (p[0] === "video" && p[1]) return { tipo: "watch", id: decY(p[1]) };
+        return { tipo: "home", categoriaId: "" };
+    }
+    window.estadoGuestDoHash = estadoDoHash;
+    function gravarUrlGuest(st) {
+        if (!gs.ativo || !st) return;
+        const destino = hashDoEstado(st);
+        if (location.hash === destino) return;
+        try { history.replaceState(history.state, "", location.pathname + location.search + destino); } catch (e) { }
+    }
+    function limparUrlGuest() {
+        if (!/^#\/yt/.test(location.hash || "")) return;
+        try { history.replaceState(history.state, "", location.pathname + location.search); } catch (e) { }
+    }
+    window.addEventListener("hashchange", () => {
+        const st = estadoDoHash(location.hash);
+        if (!st) return;
+        const atual = nav.pilha[nav.pos];
+        if (gs.ativo && atual && hashDoEstado(atual) === location.hash) return;
+        if (!gs.ativo) { window.abrirModoGuest({ restaurar: false, estadoInicial: st }); return; }
+        aplicarEstado(st).then(() => empilhar(st));
+    });
 
     async function aplicarEstado(st) {
         if (!st) return;
+        gravarUrlGuest(st);
         nav.restaurando = true;
         try {
             if (st.tipo === "home") {
@@ -6057,7 +6103,10 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         const temHistorico = persistido && nav.pilha.length;
         atualizarSetas();
 
-        if (op.restaurar !== false && temHistorico) {
+        if (op.estadoInicial) {
+            nav.restaurando = false;
+            aplicarEstado(op.estadoInicial).then(() => empilhar(op.estadoInicial));
+        } else if (op.restaurar !== false && temHistorico) {
             aplicarEstado(nav.pilha[nav.pos]);
         } else {
             irPara("home");
@@ -6074,6 +6123,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         document.getElementById("guest-container")?.classList.add("hidden");
         document.body.classList.remove("guest-mode-on");
         gs.ativo = false;
+        limparUrlGuest();
         salvarPersistencia({ aberto: false });
         document.getElementById("app-container")?.classList.remove("hidden");
     }
@@ -6086,6 +6136,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         document.getElementById("guest-container")?.classList.add("hidden");
         document.body.classList.remove("guest-mode-on");
         gs.ativo = false;
+        limparUrlGuest();
         if (estaLogado()) {
             document.getElementById("app-container")?.classList.remove("hidden");
             return;
@@ -6927,6 +6978,10 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         const btn = document.getElementById("btn-guest-access");
         if (btn) btn.onclick = (e) => { e.preventDefault(); window.abrirModoGuest({ logado: false }); };
 
+        // Link compartilhado do Mini YouTube (#/yt/...): abre direto, sem exigir login
+        const stLink = estadoDoHash(location.hash);
+        if (stLink) setTimeout(() => window.abrirModoGuest({ restaurar: false, estadoInicial: stLink }), 0);
+
         // Botões "Mini YouTube" da área logada (desktop no cabeçalho, mobile na engrenagem)
         document.addEventListener("click", (e) => {
             const alvo = e.target.closest("#btn-mini-youtube, #btn-mini-youtube-mobile");
@@ -7260,6 +7315,7 @@ function tocarAudioNoPlayer(track, link, rawPlayerEl) {
         if (aplicandoRota) return;
         const destino = rotaAtual();
         const atual = location.hash || "";
+        if (/^#\/yt/.test(atual) && document.body.classList.contains("guest-mode-on")) return;
         if (destino === atual || (!destino && !atual)) return;
         try { history.replaceState(history.state, "", location.pathname + location.search + destino); } catch (e) {}
     }
